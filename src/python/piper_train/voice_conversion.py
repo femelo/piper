@@ -7,7 +7,7 @@ from pathlib import Path
 import librosa
 import torch
 
-from .vits.lightning import VitsModel
+from .vits.lightning_model import VitsModel
 from .vits.mel_processing import spectrogram_torch
 from .vits.wavfile import write as write_wav
 

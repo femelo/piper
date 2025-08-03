@@ -4,10 +4,10 @@ import logging
 from pathlib import Path
 
 import torch
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint
+from lightning import Trainer
+from lightning.pytorch.callbacks import ModelCheckpoint
 
-from .vits.lightning import VitsModel
+from .vits.lightning_model import VitsModel
 
 _LOGGER = logging.getLogger(__package__)
 

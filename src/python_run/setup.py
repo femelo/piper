@@ -19,7 +19,7 @@ data_files = [module_dir / "voices.json"]
 
 setup(
     name="piper-tts",
-    version="1.2.0",
+    version="1.3.0",
     description="A fast, local neural text to speech system that sounds great and is optimized for the Raspberry Pi 4.",
     url="http://github.com/rhasspy/piper",
     author="Michael Hansen",
@@ -39,10 +39,11 @@ setup(
         "Intended Audience :: Developers",
         "Topic :: Text Processing :: Linguistic",
         "License :: OSI Approved :: MIT License",
-        "Programming Language :: Python :: 3.7",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
     ],
     keywords="rhasspy piper tts",
 )
