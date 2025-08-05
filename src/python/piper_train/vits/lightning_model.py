@@ -83,7 +83,7 @@ class VitsModel(pl.LightningModule):
             self.hparams.gin_channels = 512
 
         # Set up models
-        # Generator
+        # Generator (only needed for training)
         self.model_g = SynthesizerTrn(
             n_vocab=self.hparams.num_symbols,
             spec_channels=self.hparams.filter_length // 2 + 1,
@@ -141,9 +141,9 @@ class VitsModel(pl.LightningModule):
         )
 
     def forward(self, text, text_lengths, scales, sid=None):
-        noise_scale = scales[0]
-        length_scale = scales[1]
-        noise_scale_w = scales[2]
+        noise_scale = scales[0]     # normalizing flow noise scale
+        length_scale = scales[1]    # duration scale
+        noise_scale_w = scales[2]   # duration noise scale
         audio, *_ = self.model_g.infer(
             text,
             text_lengths,
@@ -310,9 +310,9 @@ class VitsModel(pl.LightningModule):
             text = test_utt.phoneme_ids.unsqueeze(0).to(self.device)
             text_lengths = torch.LongTensor([len(test_utt.phoneme_ids)]).to(self.device)
             scales = [
-                0.667,  # noise
-                1.0,    # langth
-                0.8,    # noise_w
+                0.667,  # normalizing flow noise scale
+                1.0,    # duration scale
+                0.8,    # duration noise scale
             ]
             sid = (
                 test_utt.speaker_id.to(self.device)
