@@ -737,26 +737,39 @@ class SynthesizerTrn(nn.Module):
         noise_scale_w=0.8,
         max_len=None,
     ):
+        # Encode phonemes
+        # Outputs:
+        #   x:      masked encoded input
+        #   m_p:    mean for encoded inputs
+        #   logs_p: log-standard deviation of encoded inputs
+        #   x_mask: phoneme mask
         x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths)
         if self.n_speakers > 1:
+            # If multispeaker, retrieve speaker embeddings
             assert sid is not None, "Missing speaker id"
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
             g = None
 
         if self.use_sdp:
+            # Stochastic duration likelihoods
             logw = self.dp(x, x_mask, g=g, reverse=True, noise_scale=noise_scale_w)
         else:
+            # Deterministic duration likelihoods
             logw = self.dp(x, x_mask, g=g)
+        # Duration prediction
         w = torch.exp(logw) * x_mask * length_scale
         w_ceil = torch.ceil(w)
         y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
+        # Predicted masks
         y_mask = torch.unsqueeze(
             commons.sequence_mask(y_lengths, y_lengths.max()), 1
         ).type_as(x_mask)
         attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(y_mask, -1)
+        # Predicted alignment matrices
         attn = commons.generate_path(w_ceil, attn_mask)
 
+        # Expand prior (upsample)
         m_p = torch.matmul(attn.squeeze(1), m_p.transpose(1, 2)).transpose(
             1, 2
         )  # [b, t', t], [b, t, d] -> [b, d, t']
@@ -764,12 +777,25 @@ class SynthesizerTrn(nn.Module):
             1, 2
         )  # [b, t', t], [b, t, d] -> [b, d, t']
 
+        # Sample in the normalizing flow space
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
+
         # Apply inverse of normalizing flow (backward transformation)
         z = self.flow(z_p, y_mask, g=g, reverse=True)
+        # Decode latent variables into audio
         o = self.dec((z * y_mask)[:, :, :max_len], g=g)
 
-        return o, attn, y_mask, (z, z_p, m_p, logs_p)
+        return (
+            o,          # predicted audio
+            attn,       # predicted alignment matrices
+            y_mask,     # audion mask
+            (
+                z,      # latent variables
+                z_p,    # sampled transformed variable
+                m_p,    # mean of transformed variable
+                logs_p, # log-standard-deviation of transformed variable
+            ),
+        )
 
     def voice_conversion(self, y, y_lengths, sid_src, sid_tgt):
         assert self.n_speakers > 1, "n_speakers have to be larger than 1."
