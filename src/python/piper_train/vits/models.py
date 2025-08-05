@@ -196,16 +196,21 @@ class TextEncoder(nn.Module):
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
     def forward(self, x, x_lengths):
+        # Retrieve re-scaled embeddings
         x = self.emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
         x = torch.transpose(x, 1, -1)  # [b, h, t]
+        # Mask inputs (ignore padding)
         x_mask = torch.unsqueeze(
             commons.sequence_mask(x_lengths, x.size(2)), 1
         ).type_as(x)
 
+        # Encode inputs
         x = self.encoder(x * x_mask, x_mask)
-        stats = self.proj(x) * x_mask
 
+        # Calculate mean and log-standard-deviation of encoded phonemes
+        stats = self.proj(x) * x_mask
         m, logs = torch.split(stats, self.out_channels, dim=1)
+
         return x, m, logs, x_mask
 
 
@@ -569,6 +574,7 @@ class SynthesizerTrn(nn.Module):
 
         self.use_sdp = use_sdp
 
+        # Text encoder
         self.enc_p = TextEncoder(
             n_vocab,
             inter_channels,
@@ -579,6 +585,7 @@ class SynthesizerTrn(nn.Module):
             kernel_size,
             p_dropout,
         )
+        # Decoder
         self.dec = Generator(
             inter_channels,
             resblock,
@@ -589,6 +596,7 @@ class SynthesizerTrn(nn.Module):
             upsample_kernel_sizes,
             gin_channels=gin_channels,
         )
+        # Posterior encoder (only needed for training)
         self.enc_q = PosteriorEncoder(
             spec_channels,
             inter_channels,
@@ -598,10 +606,11 @@ class SynthesizerTrn(nn.Module):
             16,
             gin_channels=gin_channels,
         )
+        # Normalizing flow (f_theta)
         self.flow = ResidualCouplingBlock(
             inter_channels, hidden_channels, 5, 1, 4, gin_channels=gin_channels
         )
-
+        # Duration predictor
         if use_sdp:
             self.dp = StochasticDurationPredictor(
                 hidden_channels, 192, 3, 0.5, 4, gin_channels=gin_channels
@@ -615,67 +624,107 @@ class SynthesizerTrn(nn.Module):
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
     def forward(self, x, x_lengths, y, y_lengths, sid=None):
+        """
+            Forward step
 
+            Args:
+                x:          phoneme ID inputs (phonemized text)
+                x_lengths:  phoneme input lengths
+                y:          audio targets
+                y_lengths:  audio target lengths
+                sid:        speaker ID (if any)
+        """
+        # Encode phonemes
+        # Outputs:
+        #   x:      masked encoded input
+        #   m_p:    mean for encoded inputs
+        #   logs_p: log-standard deviation of encoded inputs
+        #   x_mask: phoneme mask
         x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths)
         if self.n_speakers > 1:
+            # If multispeaker, retrieve speaker embeddings
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
             g = None
 
+        # Encode targets
+        # Outputs:
+        #   z:      latent state variables
+        #   m_q:    mean for latent variables
+        #   logs_q: log-standard deviation of latent variables
+        #   y_mask: audio mask
         z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g)
+
+        # Apply normalizing flow (forward transformation)
         z_p = self.flow(z, y_mask, g=g)
 
         with torch.no_grad():
-            # negative cross-entropy
+            # Inverse of variance
             s_p_sq_r = torch.exp(-2 * logs_p)  # [b, d, t]
-            neg_cent1 = torch.sum(
+            # Gaussian density log of normalizing constant
+            neg_cross_entropy1 = torch.sum(
                 -0.5 * math.log(2 * math.pi) - logs_p, [1], keepdim=True
             )  # [b, 1, t_s]
-            neg_cent2 = torch.matmul(
-                -0.5 * (z_p**2).transpose(1, 2), s_p_sq_r
+            # Gaussian density exponent (quadratic term on z_p)
+            neg_cross_entropy2 = torch.matmul(
+                -0.5 * (z_p ** 2).transpose(1, 2), s_p_sq_r
             )  # [b, t_t, d] x [b, d, t_s] = [b, t_t, t_s]
-            neg_cent3 = torch.matmul(
+            # Gaussian density exponent (cross term on z_p and m_p)
+            neg_cross_entropy3 = torch.matmul(
                 z_p.transpose(1, 2), (m_p * s_p_sq_r)
             )  # [b, t_t, d] x [b, d, t_s] = [b, t_t, t_s]
-            neg_cent4 = torch.sum(
-                -0.5 * (m_p**2) * s_p_sq_r, [1], keepdim=True
+            # Gaussian density exponent (quadratic term on m_p)
+            neg_cross_entropy4 = torch.sum(
+                -0.5 * (m_p ** 2) * s_p_sq_r, [1], keepdim=True
             )  # [b, 1, t_s]
-            neg_cent = neg_cent1 + neg_cent2 + neg_cent3 + neg_cent4
-
+            neg_cross_entropy = neg_cross_entropy1 + neg_cross_entropy2 + neg_cross_entropy3 + neg_cross_entropy4
+            # Attention mask
             attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(y_mask, -1)
+            # Calculate alignment matrices (per batch)
             attn = (
-                monotonic_align.maximum_path(neg_cent, attn_mask.squeeze(1))
+                monotonic_align.maximum_path(neg_cross_entropy, attn_mask.squeeze(1))
                 .unsqueeze(1)
                 .detach()
             )
-
+        # Sum of rows
         w = attn.sum(2)
         if self.use_sdp:
+            # Stochastic duration prediction
             l_length = self.dp(x, x_mask, w, g=g)
             l_length = l_length / torch.sum(x_mask)
         else:
+            # Deterministic duration prediction
             logw_ = torch.log(w + 1e-6) * x_mask
             logw = self.dp(x, x_mask, g=g)
             l_length = torch.sum((logw - logw_) ** 2, [1, 2]) / torch.sum(
                 x_mask
             )  # for averaging
 
-        # expand prior
+        # Expand prior values (upsample) according to alignment masks
         m_p = torch.matmul(attn.squeeze(1), m_p.transpose(1, 2)).transpose(1, 2)
         logs_p = torch.matmul(attn.squeeze(1), logs_p.transpose(1, 2)).transpose(1, 2)
 
+        # Get random slices of latent variables
         z_slice, ids_slice = commons.rand_slice_segments(
             z, y_lengths, self.segment_size
         )
+        # Decode slices to produce predicted audio slices
         o = self.dec(z_slice, g=g)
         return (
-            o,
-            l_length,
-            attn,
-            ids_slice,
-            x_mask,
-            y_mask,
-            (z, z_p, m_p, logs_p, m_q, logs_q),
+            o,         # audio slices
+            l_length,  # predicted durations
+            attn,      # alignment matrices
+            ids_slice, # slices indices
+            x_mask,    # phoneme masks
+            y_mask,    # audio masks
+            (
+                z,      # latent variables
+                z_p,    # transformed latent variables
+                m_p,    # phoneme-encoded mean
+                logs_p, # phoneme-encoded log-standard-deviation
+                m_q,    # latent variable mean
+                logs_q, # latent variable log-standard-deviation
+            ),
         )
 
     def infer(
@@ -716,6 +765,7 @@ class SynthesizerTrn(nn.Module):
         )  # [b, t', t], [b, t, d] -> [b, d, t']
 
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
+        # Apply inverse of normalizing flow (backward transformation)
         z = self.flow(z_p, y_mask, g=g, reverse=True)
         o = self.dec((z * y_mask)[:, :, :max_len], g=g)
 

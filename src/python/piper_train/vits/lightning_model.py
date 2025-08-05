@@ -83,6 +83,7 @@ class VitsModel(pl.LightningModule):
             self.hparams.gin_channels = 512
 
         # Set up models
+        # Generator
         self.model_g = SynthesizerTrn(
             n_vocab=self.hparams.num_symbols,
             spec_channels=self.hparams.filter_length // 2 + 1,
@@ -104,6 +105,7 @@ class VitsModel(pl.LightningModule):
             gin_channels=self.hparams.gin_channels,
             use_sdp=self.hparams.use_sdp,
         )
+        # Discriminator
         self.model_d = MultiPeriodDiscriminator(
             use_spectral_norm=self.hparams.use_spectral_norm
         )
@@ -194,6 +196,14 @@ class VitsModel(pl.LightningModule):
             return self.training_step_d(batch)
 
     def training_step_g(self, batch: Batch):
+        """
+            Generation training step
+
+            Variables:
+                x:    phoneme-related inputs
+                y:    audio-related targets
+                spec: spectrogram-related targets from audio targets
+        """
         x, x_lengths, y, _, spec, spec_lengths, speaker_ids = (
             batch.phoneme_ids,
             batch.phoneme_lengths,
@@ -203,6 +213,7 @@ class VitsModel(pl.LightningModule):
             batch.spectrogram_lengths,
             batch.speaker_ids if batch.speaker_ids is not None else None,
         )
+        # Forward generation
         (
             y_hat,
             l_length,
@@ -213,7 +224,7 @@ class VitsModel(pl.LightningModule):
             (_z, z_p, m_p, logs_p, _m_q, logs_q),
         ) = self.model_g(x, x_lengths, spec, spec_lengths, speaker_ids)
         self._y_hat = y_hat
-
+        # Convert target spectrogram to Mel spectrogram in a pytorch tensor
         mel = spec_to_mel_torch(
             spec,
             self.hparams.filter_length,
@@ -222,11 +233,13 @@ class VitsModel(pl.LightningModule):
             self.hparams.mel_fmin,
             self.hparams.mel_fmax,
         )
+        # Collect Mel spectrogram segments (pre-selected)
         y_mel = slice_segments(
             mel,
             ids_slice,
             self.hparams.segment_size // self.hparams.hop_length,
         )
+        # Convert predicted audio to Mel spectrogram
         y_hat_mel = mel_spectrogram_torch(
             y_hat.squeeze(1),
             self.hparams.filter_length,
@@ -237,25 +250,31 @@ class VitsModel(pl.LightningModule):
             self.hparams.mel_fmin,
             self.hparams.mel_fmax,
         )
+        # Collect predicted Mel spectrogram segments
         y = slice_segments(
             y,
             ids_slice * self.hparams.hop_length,
             self.hparams.segment_size,
         )  # slice
 
-        # Save for training_step_d
+        # Save for discriminator training step (training_step_d)
         self._y = y
 
+        # Forward discrimination between audio and predicted audio
         _y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = self.model_d(y, y_hat)
 
         with autocast(self.device.type, enabled=False):
-            # Generator loss
+            # Duration loss
             loss_dur = torch.sum(l_length.float())
+            # Likelihood loss (Mel spectrogram L1-norm loss)
             loss_mel = F.l1_loss(y_mel, y_hat_mel) * self.hparams.c_mel
+            # KL-divergence loss
             loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * self.hparams.c_kl
-
+            # Feature-matching loss
             loss_fm = feature_loss(fmap_r, fmap_g)
+            # Generation adversarial loss
             loss_gen, _losses_gen = generator_loss(y_d_hat_g)
+            # Total generation loss
             loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl
 
             self.log("loss_gen_all", loss_gen_all)
@@ -263,16 +282,19 @@ class VitsModel(pl.LightningModule):
             return loss_gen_all
 
     def training_step_d(self, batch: Batch):
+        # Discrimination training step
         # From training_step_g
         y = self._y
         y_hat = self._y_hat
+        # Forward discrimination
         y_d_hat_r, y_d_hat_g, _, _ = self.model_d(y, y_hat.detach())
 
         with autocast(self.device.type, enabled=False):
-            # Discriminator
+            # Discrimination adversarial loss
             loss_disc, _losses_disc_r, _losses_disc_g = discriminator_loss(
                 y_d_hat_r, y_d_hat_g
             )
+            # Total discrimination loss
             loss_disc_all = loss_disc
 
             self.log("loss_disc_all", loss_disc_all)
@@ -287,7 +309,11 @@ class VitsModel(pl.LightningModule):
         for utt_idx, test_utt in enumerate(self._test_dataset):
             text = test_utt.phoneme_ids.unsqueeze(0).to(self.device)
             text_lengths = torch.LongTensor([len(test_utt.phoneme_ids)]).to(self.device)
-            scales = [0.667, 1.0, 0.8]
+            scales = [
+                0.667,  # noise
+                1.0,    # langth
+                0.8,    # noise_w
+            ]
             sid = (
                 test_utt.speaker_id.to(self.device)
                 if test_utt.speaker_id is not None
