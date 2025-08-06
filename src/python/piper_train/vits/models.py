@@ -1,3 +1,4 @@
+from __future__ import annotations
 import math
 import typing
 
@@ -8,6 +9,7 @@ from torch.nn import functional as F
 from torch.nn.utils import remove_weight_norm, spectral_norm, weight_norm
 
 from . import attentions, commons, modules, monotonic_align
+from .spectral_modules import ISTFT
 from .commons import get_padding, init_weights
 
 
@@ -301,6 +303,177 @@ class PosteriorEncoder(nn.Module):
         return z, m, logs, x_mask
 
 
+class VocosBackbone(nn.Module):
+    """
+    Vocos backbone module built with ConvNeXt blocks. Supports additional conditioning with Adaptive Layer Normalization
+
+    Args:
+        input_channels (int): Number of input features channels.
+        dim (int): Hidden dimension of the model.
+        intermediate_dim (int): Intermediate dimension used in ConvNeXtBlock.
+        num_layers (int): Number of ConvNeXtBlock layers.
+        layer_scale_init_value (float, optional): Initial value for layer scaling. Defaults to `1 / num_layers`.
+        adanorm_num_embeddings (int, optional): Number of embeddings for AdaLayerNorm.
+            None means non-conditional model. Defaults to None.
+    """
+
+    def __init__(
+        self: VocosBackbone,
+        input_channels: int,
+        dim: int,
+        intermediate_dim: int,
+        num_layers: int,
+        layer_scale_init_value: typing.Optional[float] = None,
+        adanorm_num_embeddings: typing.Optional[int] = None,
+    ) -> None:
+        super().__init__()
+        self.input_channels = input_channels
+        self.embed = nn.Conv1d(input_channels, dim, kernel_size=7, padding=3)
+        self.adanorm = adanorm_num_embeddings is not None
+        if adanorm_num_embeddings:
+            self.norm = modules.AdaLayerNorm(adanorm_num_embeddings, dim, eps=1e-6)
+        else:
+            self.norm = nn.LayerNorm(dim, eps=1e-6)
+        layer_scale_init_value = layer_scale_init_value or 1 / num_layers
+        self.convnext = nn.ModuleList(
+            [
+                modules.ConvNeXtBlock(
+                    dim=dim,
+                    intermediate_dim=intermediate_dim,
+                    layer_scale_init_value=layer_scale_init_value,
+                    adanorm_num_embeddings=adanorm_num_embeddings,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+        self.final_layer_norm = nn.LayerNorm(dim, eps=1e-6)
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, (nn.Conv1d, nn.Linear)):
+            nn.init.trunc_normal_(m.weight, std=0.02)
+            nn.init.constant_(m.bias, 0)
+
+    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+        """
+        Args:
+            x (Tensor): Input tensor of shape (B, C, L), where B is the batch size,
+                C denotes output features, and L is the sequence length.
+
+        Returns:
+            Tensor: Output of shape (B, L, H), where B is the batch size, L is the sequence length,
+                and H denotes the model dimension.
+        """
+        bandwidth_id = kwargs.get('bandwidth_id', None)
+        x = self.embed(x)
+        if self.adanorm:
+            assert bandwidth_id is not None
+            x = self.norm(x.transpose(1, 2), cond_embedding_id=bandwidth_id)
+        else:
+            x = self.norm(x.transpose(1, 2))
+        x = x.transpose(1, 2)
+        for conv_block in self.convnext:
+            x = conv_block(x, cond_embedding_id=bandwidth_id)
+        x = self.final_layer_norm(x.transpose(1, 2))
+        return x
+
+
+class ISTFTHead(nn.Module):
+    """
+    ISTFT Head module for predicting STFT complex coefficients.
+
+    Args:
+        dim (int): Hidden dimension of the model.
+        n_fft (int): Size of Fourier transform.
+        hop_length (int): The distance between neighboring sliding window frames, which should align with
+            the resolution of the input features.
+        padding (str, optional): Type of padding. Options are "center" or "same". Defaults to "same".
+    """
+
+    def __init__(self, dim: int, n_fft: int, hop_length: int, padding: str = "same"):
+        super().__init__()
+        out_dim = n_fft + 2
+        self.out = torch.nn.Linear(dim, out_dim)
+        self.istft = ISTFT(n_fft=n_fft, hop_length=hop_length, win_length=n_fft, padding=padding)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the ISTFTHead module.
+
+        Args:
+            x (Tensor): Input tensor of shape (B, L, H), where B is the batch size,
+                L is the sequence length, and H denotes the model dimension.
+
+        Returns:
+            Tensor: Reconstructed time-domain audio signal of shape (B, T), where T is the length of the output signal.
+        """
+        x = self.out(x).transpose(1, 2)
+        mag, p = x.chunk(2, dim=1)
+        mag = torch.exp(mag)
+        mag = torch.clip(mag, max=1e2)  # safeguard to prevent excessively large magnitudes
+        # wrapping happens here. These two lines produce real and imaginary value
+        x = torch.cos(p)
+        y = torch.sin(p)
+        # recalculating phase here does not produce anything new
+        # only costs time
+        # phase = torch.atan2(y, x)
+        # S = mag * torch.exp(phase * 1j)
+        # better directly produce the complex value
+        S = mag * (x + 1j * y)
+        audio = self.istft(S)
+        return audio
+
+
+class VocosDecoder(torch.nn.Module):
+    def __init__(
+        self: VocosDecoder,
+        input_channels: int,
+        dim: int,
+        intermediate_dim: int,
+        num_layers: int,
+        isft_n_fft: int,
+        isft_hop_length: int,
+        isft_padding: str = "same",
+        layer_scale_init_value: typing.Optional[float] = None,
+        adanorm_num_embeddings: typing.Optional[int] = None,
+    ) -> None:
+        super().__init__()
+        self.backbone = VocosBackbone(
+            input_channels,
+            dim,
+            intermediate_dim,
+            num_layers,
+            layer_scale_init_value=layer_scale_init_value,
+            adanorm_num_embeddings=adanorm_num_embeddings,
+        )
+        self.head = ISTFTHead(
+            dim,
+            isft_n_fft,
+            isft_hop_length,
+            padding=isft_padding
+        )
+
+    def forward(
+        self: VocosDecoder,
+        features_input: torch.Tensor,
+        **kwargs: typing.Any,
+    ) -> torch.Tensor:
+        """
+        Method to decode audio waveform from already calculated features. The features input is passed through
+        the backbone and the head to reconstruct the audio output.
+
+        Args:
+            features_input (Tensor): The input tensor of features of shape (B, C, L), where B is the batch size,
+                C denotes the feature dimension, and L is the sequence length.
+
+        Returns:
+            Tensor: The output tensor representing the reconstructed audio waveform of shape (B, T).
+        """
+        x = self.backbone(features_input, **kwargs)
+        audio_output = self.head(x)
+        return audio_output
+
+
 class Generator(torch.nn.Module):
     def __init__(
         self,
@@ -522,6 +695,45 @@ class MultiPeriodDiscriminator(torch.nn.Module):
             fmap_gs.append(fmap_g)
 
         return y_d_rs, y_d_gs, fmap_rs, fmap_gs
+
+
+class WavLMDiscriminator(nn.Module):
+    """WavLM-based Discriminator."""
+    LRELU_SLOPE: float = 0.1
+
+    def __init__(
+        self: WavLMDiscriminator,
+        slm_hidden: int = 768,
+        slm_layers: int = 13,
+        initial_channel: int = 64,
+        use_spectral_norm: bool = False,
+    ) -> None:
+        super().__init__()
+        norm_f = weight_norm if use_spectral_norm == False else spectral_norm
+        self.pre = norm_f(Conv1d(slm_hidden * slm_layers, initial_channel, 1, 1, padding=0))
+
+        self.convs = nn.ModuleList(
+            [
+                norm_f(nn.Conv1d(initial_channel, initial_channel * 2, kernel_size=5, padding=2)),
+                norm_f(nn.Conv1d(initial_channel * 2, initial_channel * 4, kernel_size=5, padding=2)),
+                norm_f(nn.Conv1d(initial_channel * 4, initial_channel * 4, 5, 1, padding=2)),
+            ]
+        )
+
+        self.conv_post = norm_f(Conv1d(initial_channel * 4, 1, 3, 1, padding=1))
+
+    def forward(self: WavLMDiscriminator, x: torch.Tensor) -> torch.Tensor:
+        x = self.pre(x)
+
+        fmap = []
+        for l in self.convs:
+            x = l(x)
+            x = F.leaky_relu(x, self.LRELU_SLOPE)
+            fmap.append(x)
+        x = self.conv_post(x)
+        x = torch.flatten(x, 1, -1)
+
+        return x
 
 
 class SynthesizerTrn(nn.Module):
