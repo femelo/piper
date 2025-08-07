@@ -1,6 +1,7 @@
 from __future__ import annotations
 import math
 from typing import Optional, Tuple
+# from dataclasses import dataclass
 
 import torch
 from torch import nn
@@ -11,6 +12,30 @@ from duration_predictors import DurationPredictor, StochasticDurationPredictor
 
 
 from . import commons, monotonic_align
+
+
+# @dataclass
+# class Text:
+#     data: torch.Tensor
+#     mask: Optional[torch.Tensor] = None
+#     length: Optional[torch.Tensor] = None
+
+
+# @dataclass
+# class Audio:
+#     data: torch.Tensor
+#     mask: Optional[torch.Tensor] = None
+#     length: Optional[torch.Tensor] = None
+
+
+# @dataclass
+# class LatentVariable:
+#     data: torch.Tensor
+#     mean: torch.Tensor
+#     log_std_dev: torch.Tensor
+#     mask: Optional[torch.Tensor] = None
+#     length: Optional[torch.Tensor] = None
+
 
 class SynthesizerTrn(nn.Module):
     """
@@ -111,6 +136,17 @@ class SynthesizerTrn(nn.Module):
         if n_speakers > 1:
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
+    def encode_speaker(
+        self: SynthesizerTrn,
+        sid: Optional[int] = None,
+    ) -> Optional[torch.Tensor]:
+        g: Optional[torch.Tensor] = None
+        if self.n_speakers > 1:
+            # If multispeaker, retrieve speaker embeddings
+            assert sid is not None, "Missing speaker id"
+            g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
+        return g
+
     def forward(
         self: SynthesizerTrn,
         x: torch.Tensor,
@@ -144,11 +180,9 @@ class SynthesizerTrn(nn.Module):
         #   logs_p: log-standard deviation of encoded inputs
         #   x_mask: phoneme mask
         x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths)
-        if self.n_speakers > 1:
-            # If multispeaker, retrieve speaker embeddings
-            g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
-        else:
-            g = None
+
+        # Encode speaker
+        g = self.encode_speaker(sid)
 
         # Encode targets
         # Outputs:
@@ -156,10 +190,10 @@ class SynthesizerTrn(nn.Module):
         #   m_q:    mean for latent variables
         #   logs_q: log-standard deviation of latent variables
         #   y_mask: audio mask
-        z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g)
+        z, m_q, logs_q, z_mask = self.enc_q(y, y_lengths, g=g)
 
         # Apply normalizing flow (forward transformation)
-        z_p = self.flow(z, y_mask, g=g)
+        z_p = self.flow(z, z_mask, g=g)
 
         with torch.no_grad():
             # Inverse of variance
@@ -182,7 +216,7 @@ class SynthesizerTrn(nn.Module):
             )  # [b, 1, t_s]
             neg_cross_entropy = neg_cross_entropy1 + neg_cross_entropy2 + neg_cross_entropy3 + neg_cross_entropy4
             # Attention mask
-            attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(y_mask, -1)
+            attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(z_mask, -1)
             # Calculate alignment matrices (per batch)
             attn = (
                 monotonic_align.maximum_path(neg_cross_entropy, attn_mask.squeeze(1))
@@ -219,7 +253,7 @@ class SynthesizerTrn(nn.Module):
             attn,      # alignment matrices
             ids_slice, # slices indices
             x_mask,    # phoneme masks
-            y_mask,    # audio masks
+            z_mask,    # latent variable masks
             (
                 z,      # latent variables
                 z_p,    # transformed latent variables
@@ -252,28 +286,25 @@ class SynthesizerTrn(nn.Module):
         #   logs_p: log-standard deviation of encoded inputs
         #   x_mask: phoneme mask
         x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths)
-        if self.n_speakers > 1:
-            # If multispeaker, retrieve speaker embeddings
-            assert sid is not None, "Missing speaker id"
-            g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
-        else:
-            g = None
+    
+        # Encode speaker
+        g = self.encode_speaker(sid)
 
         if self.use_sdp:
             # Stochastic duration likelihoods
-            logw = self.dp(x, x_mask, g=g, reverse=True, noise_scale=noise_scale_w)
+            log_w = self.dp(x, x_mask, g=g, reverse=True, noise_scale=noise_scale_w)
         else:
             # Deterministic duration likelihoods
-            logw = self.dp(x, x_mask, g=g)
+            log_w = self.dp(x, x_mask, g=g)
         # Duration prediction
-        w = torch.exp(logw) * x_mask * length_scale
+        w = torch.exp(log_w) * x_mask * length_scale
         w_ceil = torch.ceil(w)
-        y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
+        z_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
         # Predicted masks
-        y_mask = torch.unsqueeze(
-            commons.sequence_mask(y_lengths, y_lengths.max()), 1
+        z_mask = torch.unsqueeze(
+            commons.sequence_mask(z_lengths, z_lengths.max()), 1
         ).type_as(x_mask)
-        attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(y_mask, -1)
+        attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(z_mask, -1)
         # Predicted alignment matrices
         attn = commons.generate_path(w_ceil, attn_mask)
 
@@ -289,14 +320,14 @@ class SynthesizerTrn(nn.Module):
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
 
         # Apply inverse of normalizing flow (backward transformation)
-        z = self.flow(z_p, y_mask, g=g, reverse=True)
+        z = self.flow(z_p, z_mask, g=g, reverse=True)
         # Decode latent variables into audio
-        o = self.dec((z * y_mask)[:, :, :max_len], g=g)
+        o = self.dec((z * z_mask)[:, :, :max_len], g=g)
 
         return (
             o,          # predicted audio
             attn,       # predicted alignment matrices
-            y_mask,     # audion mask
+            z_mask,     # latent variable mask
             (
                 z,      # latent variables
                 z_p,    # sampled transformed variable
@@ -313,10 +344,10 @@ class SynthesizerTrn(nn.Module):
         sid_tgt: int,
     ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...]]:
         assert self.n_speakers > 1, "n_speakers have to be larger than 1."
-        g_src = self.emb_g(sid_src).unsqueeze(-1)
-        g_tgt = self.emb_g(sid_tgt).unsqueeze(-1)
-        z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g_src)
-        z_p = self.flow(z, y_mask, g=g_src)
-        z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)
-        o_hat = self.dec(z_hat * y_mask, g=g_tgt)
-        return o_hat, y_mask, (z, z_p, z_hat)
+        g_src = self.encode_speaker(sid_src)
+        g_tgt = self.encode_speaker(sid_tgt)
+        z, _m_q, _logs_q, z_mask = self.enc_q(y, y_lengths, g=g_src)
+        z_p = self.flow(z, z_mask, g=g_src)
+        z_hat = self.flow(z_p, z_mask, g=g_tgt, reverse=True)
+        o_hat = self.dec(z_hat * z_mask, g=g_tgt)
+        return o_hat, z_mask, (z, z_p, z_hat)

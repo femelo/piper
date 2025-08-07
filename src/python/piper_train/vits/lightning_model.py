@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 from argparse import ArgumentParser
 
-import lightning as pl
+import lightning as L
 import torch
 from torch import autocast
 from torch.nn import functional as F
@@ -17,10 +17,11 @@ from .mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 from .discriminators import MultiPeriodDiscriminator
 from .models import SynthesizerTrn
 
+
 _LOGGER = logging.getLogger("vits.lightning_model")
 
 
-class VitsModel(pl.LightningModule):
+class VitsModel(L.LightningModule):
     def __init__(
         self: VitsModel,
         num_symbols: int,
