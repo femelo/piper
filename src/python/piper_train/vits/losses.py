@@ -2,7 +2,7 @@ from __future__ import annotations
 import torch
 import torchaudio
 from transformers import AutoModel
-from .models import WavLMDiscriminator
+from .discriminators import WavLMDiscriminator
 
 
 def feature_loss(fmap_r, fmap_g):
@@ -23,8 +23,8 @@ def discriminator_loss(disc_real_outputs, disc_generated_outputs):
     for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
         dr = dr.float()
         dg = dg.float()
-        r_loss = torch.mean((1 - dr) ** 2)
-        g_loss = torch.mean(dg**2)
+        r_loss = torch.mean((1.0 - dr) ** 2)
+        g_loss = torch.mean(dg ** 2)
         loss += r_loss + g_loss
         r_losses.append(r_loss.item())
         g_losses.append(g_loss.item())
@@ -37,7 +37,7 @@ def generator_loss(disc_outputs):
     gen_losses = []
     for dg in disc_outputs:
         dg = dg.float()
-        l_dg = torch.mean((1 - dg) ** 2)
+        l_dg = torch.mean((1.0 - dg) ** 2)
         gen_losses.append(l_dg)
         loss += l_dg
 
