@@ -1,6 +1,8 @@
+from __future__ import annotations
 import logging
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
+from argparse import ArgumentParser
 
 import lightning as pl
 import torch
@@ -12,27 +14,28 @@ from .commons import slice_segments
 from .dataset import Batch, PiperDataset, UtteranceCollate
 from .losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from .mel_processing import mel_spectrogram_torch, spec_to_mel_torch
-from .models import MultiPeriodDiscriminator, SynthesizerTrn
+from .discriminators import MultiPeriodDiscriminator
+from .models import SynthesizerTrn
 
 _LOGGER = logging.getLogger("vits.lightning_model")
 
 
 class VitsModel(pl.LightningModule):
     def __init__(
-        self,
+        self: VitsModel,
         num_symbols: int,
         num_speakers: int,
         # audio
-        resblock="2",
-        resblock_kernel_sizes=(3, 5, 7),
-        resblock_dilation_sizes=(
+        resblock: str = "2",
+        resblock_kernel_sizes: Tuple[int, ...] = (3, 5, 7),
+        resblock_dilation_sizes: Tuple[Tuple[int, ...], ...] = (
             (1, 2),
             (2, 6),
             (3, 12),
         ),
-        upsample_rates=(8, 8, 4),
-        upsample_initial_channel=256,
-        upsample_kernel_sizes=(16, 16, 8),
+        upsample_rates: Tuple[int, ...] = (8, 8, 4),
+        upsample_initial_channel: int = 256,
+        upsample_kernel_sizes: Tuple[int, ...] = (16, 16, 8),
         # mel
         filter_length: int = 1024,
         hop_length: int = 256,
@@ -73,7 +76,7 @@ class VitsModel(pl.LightningModule):
         num_test_examples: int = 5,
         validation_split: float = 0.1,
         max_phoneme_ids: Optional[int] = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -122,11 +125,11 @@ class VitsModel(pl.LightningModule):
         self._y_hat = None
 
     def _load_datasets(
-        self,
+        self: VitsModel,
         validation_split: float,
         num_test_examples: int,
         max_phoneme_ids: Optional[int] = None,
-    ):
+    ) -> None:
         if self.hparams.dataset is None:
             _LOGGER.debug("No dataset to load")
             return
@@ -141,7 +144,13 @@ class VitsModel(pl.LightningModule):
             full_dataset, [train_set_size, num_test_examples, valid_set_size]
         )
 
-    def forward(self, text, text_lengths, scales, sid=None):
+    def forward(
+        self: VitsModel,
+        text: torch.Tensor,
+        text_lengths: torch.Tensor,
+        scales: Union[Tuple[float, ...], List[float]],
+        sid: Optional[int] = None,
+    ) -> torch.Tensor:
         noise_scale = scales[0]     # normalizing flow noise scale
         length_scale = scales[1]    # duration scale
         noise_scale_w = scales[2]   # duration noise scale
@@ -156,7 +165,7 @@ class VitsModel(pl.LightningModule):
 
         return audio
 
-    def train_dataloader(self):
+    def train_dataloader(self: VitsModel) -> DataLoader:
         return DataLoader(
             self._train_dataset,
             collate_fn=UtteranceCollate(
@@ -167,7 +176,7 @@ class VitsModel(pl.LightningModule):
             batch_size=self.hparams.batch_size,
         )
 
-    def val_dataloader(self):
+    def val_dataloader(self: VitsModel) -> DataLoader:
         return DataLoader(
             self._val_dataset,
             collate_fn=UtteranceCollate(
@@ -178,7 +187,7 @@ class VitsModel(pl.LightningModule):
             batch_size=self.hparams.batch_size,
         )
 
-    def test_dataloader(self):
+    def test_dataloader(self: VitsModel) -> DataLoader:
         return DataLoader(
             self._test_dataset,
             collate_fn=UtteranceCollate(
@@ -189,14 +198,14 @@ class VitsModel(pl.LightningModule):
             batch_size=self.hparams.batch_size,
         )
 
-    def training_step(self, batch: Batch, batch_idx: int, optimizer_idx: int):
+    def training_step(self: VitsModel, batch: Batch, batch_idx: int, optimizer_idx: int) -> torch.Tensor:
         if optimizer_idx == 0:
             return self.training_step_g(batch)
 
         if optimizer_idx == 1:
             return self.training_step_d(batch)
 
-    def training_step_g(self, batch: Batch):
+    def training_step_g(self: VitsModel, batch: Batch) -> torch.Tensor:
         """
             Generation training step
 
@@ -282,7 +291,7 @@ class VitsModel(pl.LightningModule):
 
             return loss_gen_all
 
-    def training_step_d(self, batch: Batch):
+    def training_step_d(self: VitsModel, batch: Batch) -> torch.Tensor:
         # Discrimination training step
         # From training_step_g
         y = self._y
@@ -302,7 +311,7 @@ class VitsModel(pl.LightningModule):
 
             return loss_disc_all
 
-    def validation_step(self, batch: Batch, batch_idx: int):
+    def validation_step(self: VitsModel, batch: Batch, batch_idx: int) -> torch.Tensor:
         val_loss = self.training_step_g(batch) + self.training_step_d(batch)
         self.log("val_loss", val_loss)
 
@@ -332,7 +341,9 @@ class VitsModel(pl.LightningModule):
 
         return val_loss
 
-    def configure_optimizers(self):
+    def configure_optimizers(
+        self: VitsModel
+    ) -> Tuple[List[torch.optim.Optimizer], List[torch.optim.lr_scheduler.LRScheduler]]:
         optimizers = [
             torch.optim.AdamW(
                 self.model_g.parameters(),
@@ -359,7 +370,7 @@ class VitsModel(pl.LightningModule):
         return optimizers, schedulers
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(parent_parser: ArgumentParser) -> ArgumentParser:
         parser = parent_parser.add_argument_group("VitsModel")
         parser.add_argument("--batch-size", type=int, required=True)
         parser.add_argument("--validation-split", type=float, default=0.1)
