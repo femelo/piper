@@ -1,11 +1,21 @@
 from __future__ import annotations
+from typing import List, Optional, Tuple
 import torch
+from torch import nn
+from torch import functional as F
 import torchaudio
 from transformers import AutoModel
-from .discriminators import WavLMDiscriminator
+from .discriminators import (
+    MultiPeriodDiscriminator,
+    MultiResSpecDiscriminator,
+    WavLMDiscriminator,
+)
 
 
-def feature_loss(fmap_r, fmap_g):
+def feature_loss(
+    fmap_r: List[torch.Tensor],
+    fmap_g: List[torch.Tensor],
+) -> torch.Tensor:
     loss = 0
     for dr, dg in zip(fmap_r, fmap_g):
         for rl, gl in zip(dr, dg):
@@ -16,7 +26,10 @@ def feature_loss(fmap_r, fmap_g):
     return loss * 2
 
 
-def discriminator_loss(disc_real_outputs, disc_generated_outputs):
+def discriminator_loss(
+    disc_real_outputs: List[torch.Tensor],
+    disc_generated_outputs: List[torch.Tensor],
+) -> Tuple[torch.Tensor, ...]:
     loss = 0
     r_losses = []
     g_losses = []
@@ -32,7 +45,7 @@ def discriminator_loss(disc_real_outputs, disc_generated_outputs):
     return loss, r_losses, g_losses
 
 
-def generator_loss(disc_outputs):
+def generator_loss(disc_outputs: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
     loss = 0
     gen_losses = []
     for dg in disc_outputs:
@@ -44,7 +57,40 @@ def generator_loss(disc_outputs):
     return loss, gen_losses
 
 
-def kl_loss(z_p, logs_q, m_p, logs_p, z_mask):
+""" https://dl.acm.org/doi/abs/10.1145/3573834.3574506 """
+def discriminator_tprls_loss(
+    disc_real_outputs: List[torch.Tensor],
+    disc_generated_outputs: List[torch.Tensor],
+) -> torch.Tensor:
+    loss = 0
+    for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
+        tau = 0.04
+        m_DG = torch.median((dr-dg))
+        L_rel = torch.mean((((dr - dg) - m_DG)**2)[dr < dg + m_DG])
+        loss += tau - F.relu(tau - L_rel)
+    return loss
+
+
+def generator_tprls_loss(
+    disc_real_outputs: List[torch.Tensor],
+    disc_generated_outputs: List[torch.Tensor],
+) -> torch.Tensor:
+    loss = 0
+    for dg, dr in zip(disc_real_outputs, disc_generated_outputs):
+        tau = 0.04
+        m_DG = torch.median((dr - dg))
+        L_rel = torch.mean((((dr - dg) - m_DG)**2)[dr < dg + m_DG])
+        loss += tau - F.relu(tau - L_rel)
+    return loss
+
+
+def kl_loss(
+    z_p: torch.Tensor,
+    logs_q: torch.Tensor,
+    m_p: torch.Tensor,
+    logs_p: torch.Tensor,
+    z_mask: torch.Tensor,
+) -> torch.Tensor:
     """
     z_p, logs_q: [b, h, t_t]
     m_p, logs_p: [b, h, t_t]
@@ -62,9 +108,77 @@ def kl_loss(z_p, logs_q, m_p, logs_p, z_mask):
     return l_kl
 
 
-class WavLMLoss(torch.nn.Module):
+class GeneratorLoss(nn.Module):
 
-    def __init__(self: WavLMLoss, model: str, wd: WavLMDiscriminator, model_sr: int, slm_sr: int = 16000) -> None:
+    def __init__(
+        self: GeneratorLoss,
+        mpd: MultiPeriodDiscriminator,
+        msd: Optional[MultiResSpecDiscriminator] = None,
+    ) -> None:
+        super().__init__()
+        self.mpd = mpd
+        self.msd = msd
+
+    def forward(self: GeneratorLoss, y: torch.Tensor, y_hat: torch.Tensor) -> torch.Tensor:
+        # MPD
+        y_df_hat_r, y_df_hat_g, fmap_f_r, fmap_f_g = self.mpd(y, y_hat)
+        loss_fm_f = feature_loss(fmap_f_r, fmap_f_g)
+        loss_gen_f, _losses_gen_f = generator_loss(y_df_hat_g)
+        loss_rel = generator_tprls_loss(y_df_hat_r, y_df_hat_g)
+        loss_gen_all = loss_gen_f + loss_fm_f
+
+        # MSD
+        if self.msd is not None:
+            y_ds_hat_r, y_ds_hat_g, fmap_s_r, fmap_s_g = self.msd(y, y_hat)
+            loss_fm_s = feature_loss(fmap_s_r, fmap_s_g)
+            loss_gen_s, _losses_gen_s = generator_loss(y_ds_hat_g)
+            loss_rel += generator_tprls_loss(y_ds_hat_r, y_ds_hat_g)
+            loss_gen_all += loss_gen_s + loss_fm_s
+
+        loss_gen_all += loss_rel
+
+        return loss_gen_all.mean()
+
+
+class DiscriminatorLoss(torch.nn.Module):
+
+    def __init__(
+        self: DiscriminatorLoss,
+        mpd: MultiPeriodDiscriminator,
+        msd: Optional[MultiResSpecDiscriminator] = None,
+    ) -> None:
+        super().__init__()
+        self.mpd = mpd
+        self.msd = msd
+        
+    def forward(self: DiscriminatorLoss, y: torch.Tensor, y_hat: torch.Tensor) -> torch.Tensor:
+        # MPD
+        y_df_hat_r, y_df_hat_g, _, _ = self.mpd(y, y_hat)
+        loss_disc_f, _losses_disc_f_r, _losses_disc_f_g = discriminator_loss(y_df_hat_r, y_df_hat_g)
+        loss_rel = discriminator_tprls_loss(y_df_hat_r, y_df_hat_g)
+        d_loss = loss_disc_f
+
+        # MSD
+        if self.msd is not None:
+            y_ds_hat_r, y_ds_hat_g, _, _ = self.msd(y, y_hat)
+            loss_disc_s, _losses_disc_s_r, _losses_disc_s_g = discriminator_loss(y_ds_hat_r, y_ds_hat_g)
+            loss_rel += discriminator_tprls_loss(y_ds_hat_r, y_ds_hat_g)
+            d_loss += loss_disc_s
+
+        d_loss += loss_rel
+
+        return d_loss.mean()
+
+
+class WavLMLoss(nn.Module):
+
+    def __init__(
+        self: WavLMLoss,
+        model: str,
+        wd: WavLMDiscriminator,
+        model_sr: int,
+        slm_sr: int = 16000,
+    ) -> None:
         super().__init__()
         self.wavlm = AutoModel.from_pretrained(model)
         self.wd = wd
