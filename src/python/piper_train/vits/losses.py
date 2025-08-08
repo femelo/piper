@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 import torch
 from torch import nn
-from torch import functional as F
+from torch.nn import functional as F
 import torchaudio
 from transformers import AutoModel
 from .discriminators import (
@@ -66,7 +66,7 @@ def discriminator_tprls_loss(
     for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
         tau = 0.04
         m_DG = torch.median((dr-dg))
-        L_rel = torch.mean((((dr - dg) - m_DG)**2)[dr < dg + m_DG])
+        L_rel = torch.mean((((dr - dg) - m_DG) ** 2)[dr < dg + m_DG])
         loss += tau - F.relu(tau - L_rel)
     return loss
 
@@ -79,7 +79,7 @@ def generator_tprls_loss(
     for dg, dr in zip(disc_real_outputs, disc_generated_outputs):
         tau = 0.04
         m_DG = torch.median((dr - dg))
-        L_rel = torch.mean((((dr - dg) - m_DG)**2)[dr < dg + m_DG])
+        L_rel = torch.mean((((dr - dg) - m_DG) ** 2)[dr < dg + m_DG])
         loss += tau - F.relu(tau - L_rel)
     return loss
 
