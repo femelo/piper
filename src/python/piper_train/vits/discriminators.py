@@ -1,13 +1,97 @@
 from __future__ import annotations
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.nn.utils import spectral_norm, weight_norm
 from .commons import get_padding
+from .spectral_modules import mag_stft
 
 
-class DiscriminatorP(torch.nn.Module):
+class SpecDiscriminator(nn.Module):
+    LRELU_SLOPE: float = 0.1
+
+    def __init__(
+        self: SpecDiscriminator,
+        fft_size: int = 1024,
+        shift_size: int = 120,
+        win_length: int = 600,
+        window: str = "hann_window",
+        use_spectral_norm: bool = False,
+    ) -> None:
+        super().__init__()
+
+        norm_f = weight_norm if not use_spectral_norm else spectral_norm
+        self.fft_size = fft_size
+        self.shift_size = shift_size
+        self.win_length = win_length
+        self.window = getattr(torch, window)(win_length)
+        self.discriminators = nn.ModuleList([
+            norm_f(nn.Conv2d(1, 32, kernel_size=(3, 9), padding=(1, 4))),
+            norm_f(nn.Conv2d(32, 32, kernel_size=(3, 9), stride=(1,2), padding=(1, 4))),
+            norm_f(nn.Conv2d(32, 32, kernel_size=(3, 9), stride=(1,2), padding=(1, 4))),
+            norm_f(nn.Conv2d(32, 32, kernel_size=(3, 9), stride=(1,2), padding=(1, 4))),
+            norm_f(nn.Conv2d(32, 32, kernel_size=(3, 3), stride=(1,1), padding=(1, 1))),
+        ])
+
+        self.out = norm_f(nn.Conv2d(32, 1, 3, 1, 1))
+
+    def forward(self: SpecDiscriminator, y: torch.Tensor) -> torch.Tensor:
+        fmap = []
+        y = y.squeeze(1)
+
+        y = mag_stft(y, self.fft_size, self.shift_size, self.win_length, self.window.to(y.get_device()))
+        y = y.unsqueeze(1)
+
+        for _i, d in enumerate(self.discriminators):
+            y = d(y)
+            y = F.leaky_relu(y, self.LRELU_SLOPE)
+            fmap.append(y)
+
+        y = self.out(y)
+        fmap.append(y)
+
+        return torch.flatten(y, 1, -1), fmap
+
+
+class MultiResSpecDiscriminator(nn.Module):
+
+    def __init__(
+        self: MultiResSpecDiscriminator,
+        fft_sizes: Union[Tuple[int, ...], List[int]] = [1024, 2048, 512],
+        hop_sizes: Union[Tuple[int, ...], List[int]] = [120, 240, 50],
+        win_lengths: Union[Tuple[int, ...], List[int]] = [600, 1200, 240],
+        window: str = "hann_window",
+    ) -> None:
+        super().__init__()
+
+        self.discriminators = nn.ModuleList([
+            SpecDiscriminator(fft_sizes[0], hop_sizes[0], win_lengths[0], window),
+            SpecDiscriminator(fft_sizes[1], hop_sizes[1], win_lengths[1], window),
+            SpecDiscriminator(fft_sizes[2], hop_sizes[2], win_lengths[2], window)
+            ])
+
+    def forward(
+        self: MultiResSpecDiscriminator,
+        y: torch.Tensor,
+        y_hat: torch.Tensor,
+    ) -> Tuple[List[torch.Tensor], ...]:
+        y_d_rs = []
+        y_d_gs = []
+        fmap_rs = []
+        fmap_gs = []
+        for i, d in enumerate(self.discriminators):
+            y_d_r, fmap_r = d(y)
+            y_d_g, fmap_g = d(y_hat)
+            y_d_rs.append(y_d_r)
+            fmap_rs.append(fmap_r)
+            y_d_gs.append(y_d_g)
+            fmap_gs.append(fmap_g)
+
+        return y_d_rs, y_d_gs, fmap_rs, fmap_gs
+
+
+class DiscriminatorP(nn.Module):
     LRELU_SLOPE: float = 0.1
 
     def __init__(
@@ -17,7 +101,8 @@ class DiscriminatorP(torch.nn.Module):
         stride: int = 3,
         use_spectral_norm: bool = False,
     ) -> None:
-        super(DiscriminatorP, self).__init__()
+        super().__init__()
+
         self.period = period
         self.use_spectral_norm = use_spectral_norm
         norm_f = weight_norm if not use_spectral_norm else spectral_norm
@@ -97,7 +182,7 @@ class DiscriminatorP(torch.nn.Module):
         return x, fmap
 
 
-class DiscriminatorS(torch.nn.Module):
+class DiscriminatorS(nn.Module):
     LRELU_SLOPE: float = 0.1
 
     def __init__(self: DiscriminatorS, use_spectral_norm: bool = False) -> None:
@@ -130,15 +215,16 @@ class DiscriminatorS(torch.nn.Module):
 
 
 class MultiPeriodDiscriminator(torch.nn.Module):
-    def __init__(self: MultiPeriodDiscriminator, use_spectral_norm: bool = False) -> None:
-        super(MultiPeriodDiscriminator, self).__init__()
-        periods = [2, 3, 5, 7, 11]
+    PERIODS: List[int] = [2, 3, 5, 7, 11]
 
-        discs = [DiscriminatorS(use_spectral_norm=use_spectral_norm)]
-        discs = discs + [
-            DiscriminatorP(i, use_spectral_norm=use_spectral_norm) for i in periods
+    def __init__(self: MultiPeriodDiscriminator, use_spectral_norm: bool = False, simplified: bool = True) -> None:
+        super().__init__()
+
+        modules = [] if simplified else [DiscriminatorS(use_spectral_norm=use_spectral_norm)]
+        modules += [
+            DiscriminatorP(p, use_spectral_norm=use_spectral_norm) for p in self.PERIODS
         ]
-        self.discriminators = nn.ModuleList(discs)
+        self.discriminators = nn.ModuleList(modules)
 
     def forward(
         self: MultiPeriodDiscriminator,

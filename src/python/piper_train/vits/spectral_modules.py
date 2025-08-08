@@ -2,6 +2,31 @@ import torch
 from torch import nn
 
 
+def mag_stft(
+    x: torch.Tensor,
+    fft_size: int,
+    hop_size: int,
+    win_length: int,
+    window: str,
+) -> torch.Tensor:
+    """Perform STFT and convert to magnitude spectrogram.
+    Args:
+        x (Tensor): Input signal tensor (B, T).
+        fft_size (int): FFT size.
+        hop_size (int): Hop size.
+        win_length (int): Window length.
+        window (str): Window function type.
+    Returns:
+        Tensor: Magnitude spectrogram (B, #frames, fft_size // 2 + 1).
+    """
+    x_stft = torch.stft(x, fft_size, hop_size, win_length, window,
+            return_complex=True)
+    # real = x_stft[..., 0]
+    # imag = x_stft[..., 1]
+
+    return torch.abs(x_stft).transpose(2, 1)
+
+
 class ISTFT(nn.Module):
     """
     Custom implementation of ISTFT since torch.istft doesn't allow custom padding (other than `center=True`) with
