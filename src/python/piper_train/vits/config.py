@@ -1,4 +1,5 @@
 """Configuration classes"""
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
@@ -26,7 +27,7 @@ class ModelAudioConfig:
     upsample_kernel_sizes: Tuple[int, ...]
 
     @staticmethod
-    def low_quality() -> "ModelAudioConfig":
+    def low_quality() -> ModelAudioConfig:
         return ModelAudioConfig(
             resblock="2",
             resblock_kernel_sizes=(3, 5, 7),
@@ -41,7 +42,7 @@ class ModelAudioConfig:
         )
 
     @staticmethod
-    def high_quality() -> "ModelAudioConfig":
+    def high_quality() -> ModelAudioConfig:
         return ModelAudioConfig(
             resblock="1",
             resblock_kernel_sizes=(3, 7, 11),
@@ -77,36 +78,46 @@ class ModelConfig:
     segment_size: int = 8192
 
     @property
-    def is_multispeaker(self) -> bool:
+    def is_multispeaker(self: ModelConfig) -> bool:
         return self.n_speakers > 1
 
     @property
-    def resblock(self) -> str:
+    def resblock(self: ModelConfig) -> str:
         return self.audio.resblock
 
     @property
-    def resblock_kernel_sizes(self) -> Tuple[int, ...]:
+    def resblock_kernel_sizes(self: ModelConfig) -> Tuple[int, ...]:
         return self.audio.resblock_kernel_sizes
 
     @property
-    def resblock_dilation_sizes(self) -> Tuple[Tuple[int, ...], ...]:
+    def resblock_dilation_sizes(self: ModelConfig) -> Tuple[Tuple[int, ...], ...]:
         return self.audio.resblock_dilation_sizes
 
     @property
-    def upsample_rates(self) -> Tuple[int, ...]:
+    def upsample_rates(self: ModelConfig) -> Tuple[int, ...]:
         return self.audio.upsample_rates
 
     @property
-    def upsample_initial_channel(self) -> int:
+    def upsample_initial_channel(self: ModelConfig) -> int:
         return self.audio.upsample_initial_channel
 
     @property
-    def upsample_kernel_sizes(self) -> Tuple[int, ...]:
+    def upsample_kernel_sizes(self: ModelConfig) -> Tuple[int, ...]:
         return self.audio.upsample_kernel_sizes
 
-    def __post_init__(self):
+    def __post_init__(self: ModelConfig) -> None:
         if self.is_multispeaker and (self.gin_channels == 0):
             self.gin_channels = 512
+
+
+@dataclass
+class SLMModelConfig:
+    # speech language model config
+    model: str = 'microsoft/wavlm-base-plus'
+    sr: int = 16000 # sampling rate of SLM
+    hidden: int = 768 # hidden size of SLM
+    nlayers: int = 13 # number of layers of SLM
+    initial_channel: int = 64 # initial channels of SLM discriminator head
 
 
 @dataclass
@@ -119,8 +130,12 @@ class TrainingConfig:
     lr_decay: float = 0.999875
     init_lr_ratio: float = 1.0
     warmup_epochs: int = 0
+    slm: SLMModelConfig = field(default_factory=SLMModelConfig)
+    c_dur: float = 1.0
     c_mel: int = 45
     c_kl: float = 1.0
+    c_gen: float = 1.0
+    c_slm: float = 1.0
     grad_clip: Optional[float] = None
 
 

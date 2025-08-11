@@ -12,9 +12,22 @@ from torch.utils.data import DataLoader, Dataset, random_split
 
 from .commons import slice_segments
 from .dataset import Batch, PiperDataset, UtteranceCollate
-from .losses import discriminator_loss, feature_loss, generator_loss, kl_loss
+from .losses import (
+    MultiResolutionSTFTLoss,
+    DiscriminatorLoss,
+    GeneratorLoss,
+    WavLMLoss,
+    discriminator_loss,
+    feature_loss,
+    generator_loss,
+    kl_loss,
+)
 from .mel_processing import mel_spectrogram_torch, spec_to_mel_torch
-from .discriminators import MultiPeriodDiscriminator
+from .discriminators import (
+    MultiPeriodDiscriminator,
+    MultiResSpecDiscriminator,
+    WavLMDiscriminator,
+)
 from .models import SynthesizerTrn
 
 
@@ -110,10 +123,31 @@ class VitsModel(L.LightningModule):
             use_sdp=self.hparams.use_sdp,
         )
 
-        # Discriminator
-        self.model_d = MultiPeriodDiscriminator(
+        # Discriminators
+        self.mpd = MultiPeriodDiscriminator(
             use_spectral_norm=self.hparams.use_spectral_norm
-        )
+        ).to(self.device)
+        self.msd = MultiResSpecDiscriminator().to(self.device)
+        self.wd = WavLMDiscriminator(
+            use_spectral_norm=self.hparams.use_spectral_norm
+        ).to(self.device)
+
+        # Losses wrappers
+        self.stft_loss = MultiResolutionSTFTLoss().to(self.device)
+        self.discriminator_loss = DiscriminatorLoss(
+            mpd=self.mpd,
+            msd=self.msd,
+        ).to(self.device)
+        self.generator_loss = GeneratorLoss(
+            mpd=self.mpd,
+            msd=self.msd,
+        ).to(self.device)
+        self.wavlm_loss = WavLMLoss(
+            model=self.hparams.slm.model,
+            wd=self.wd,
+            sr=self.hparams.sample_rate,
+            slm_sr=self.hparams.slm.sr,
+        ).to(self.device)
 
         # Dataset splits
         self._train_dataset: Optional[Dataset] = None
@@ -244,23 +278,6 @@ class VitsModel(L.LightningModule):
             self.hparams.mel_fmin,
             self.hparams.mel_fmax,
         )
-        # Collect Mel spectrogram segments (pre-selected)
-        y_mel = slice_segments(
-            mel,
-            ids_slice,
-            self.hparams.segment_size // self.hparams.hop_length,
-        )
-        # Convert predicted audio to Mel spectrogram
-        y_hat_mel = mel_spectrogram_torch(
-            y_hat.squeeze(1),
-            self.hparams.filter_length,
-            self.hparams.mel_channels,
-            self.hparams.sample_rate,
-            self.hparams.hop_length,
-            self.hparams.win_length,
-            self.hparams.mel_fmin,
-            self.hparams.mel_fmax,
-        )
         # Collect predicted Mel spectrogram segments
         y = slice_segments(
             y,
@@ -271,22 +288,19 @@ class VitsModel(L.LightningModule):
         # Save for discriminator training step (training_step_d)
         self._y = y
 
-        # Forward discrimination between audio and predicted audio
-        _y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = self.model_d(y, y_hat)
-
         with autocast(self.device.type, enabled=False):
             # Duration loss
-            loss_dur = torch.sum(l_length.float())
-            # Likelihood loss (Mel spectrogram L1-norm loss)
-            loss_mel = F.l1_loss(y_mel, y_hat_mel) * self.hparams.c_mel
+            loss_dur = torch.sum(l_length.float()) * self.hparams.c_dur
+            # Likelihood loss (Mel spectrogram multi-resolution STFT loss)
+            loss_mel = self.stft_loss(y.detach(), y_hat.squeeze()) * self.hparams.c_mel
             # KL-divergence loss
             loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * self.hparams.c_kl
-            # Feature-matching loss
-            loss_fm = feature_loss(fmap_r, fmap_g)
-            # Generation adversarial loss
-            loss_gen, _losses_gen = generator_loss(y_d_hat_g)
+            # Generator loss
+            loss_gen = self.generator_loss(y, y_hat).mean() * self.hparams.c_gen
+            # SLM loss
+            loss_slm = self.wavlm_loss(y.detach(), y_hat).mean() * self.hparams.c_slm
             # Total generation loss
-            loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl
+            loss_gen_all = loss_gen + loss_slm + loss_mel + loss_dur + loss_kl
 
             self.log("loss_gen_all", loss_gen_all)
 
@@ -297,20 +311,16 @@ class VitsModel(L.LightningModule):
         # From training_step_g
         y = self._y
         y_hat = self._y_hat
-        # Forward discrimination
-        y_d_hat_r, y_d_hat_g, _, _ = self.model_d(y, y_hat.detach())
 
         with autocast(self.device.type, enabled=False):
             # Discrimination adversarial loss
-            loss_disc, _losses_disc_r, _losses_disc_g = discriminator_loss(
-                y_d_hat_r, y_d_hat_g
-            )
+            loss_dsc = self.discriminator_loss(y.detach().unsqueeze(1).float(), y_hat.detach()).mean()
             # Total discrimination loss
-            loss_disc_all = loss_disc
+            loss_dsc_all = loss_dsc
 
-            self.log("loss_disc_all", loss_disc_all)
+            self.log("loss_dsc_all", loss_dsc_all)
 
-            return loss_disc_all
+            return loss_dsc_all
 
     def validation_step(self: VitsModel, batch: Batch, batch_idx: int) -> torch.Tensor:
         val_loss = self.training_step_g(batch) + self.training_step_d(batch)

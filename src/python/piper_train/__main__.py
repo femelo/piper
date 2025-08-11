@@ -116,7 +116,8 @@ def main():
         # Copy over the multi-speaker model, excluding keys related to the
         # speaker embedding (which is missing from the single-speaker model).
         load_state_dict(model.model_g, g_dict)
-        load_state_dict(model.model_d, model_single.model_d.state_dict())
+        for attr in ("mpd", "msd", "wd", "stft_loss", "discriminator_loss", "generator_loss", "wavlm_loss"):
+            load_state_dict(getattr(model, attr), getattr(model_single, attr).state_dict())
         _LOGGER.info(
             "Successfully converted single-speaker checkpoint to multi-speaker"
         )
