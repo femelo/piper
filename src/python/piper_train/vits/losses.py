@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple, Union
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -10,6 +10,122 @@ from .discriminators import (
     MultiResSpecDiscriminator,
     WavLMDiscriminator,
 )
+
+
+class SpectralConvergengeLoss(nn.Module):
+    """Spectral convergence loss module."""
+
+    def __init__(self: SpectralConvergengeLoss) -> None:
+        """Initilize spectral convergence loss module."""
+        super().__init__()
+
+    def forward(
+        self: SpectralConvergengeLoss,
+        x_mag: torch.Tensor,
+        y_mag: torch.Tensor,
+    ) -> torch.Tensor:
+        """Calculate forward propagation.
+        Args:
+            x_mag (Tensor): Magnitude spectrogram of predicted signal (B, #frames, #freq_bins).
+            y_mag (Tensor): Magnitude spectrogram of groundtruth signal (B, #frames, #freq_bins).
+        Returns:
+            Tensor: Spectral convergence loss value.
+        """
+        return torch.norm(y_mag - x_mag, p=1) / torch.norm(y_mag, p=1)
+
+
+class STFTLoss(nn.Module):
+    """STFT loss module."""
+
+    def __init__(
+        self: STFTLoss,
+        fft_size: int = 1024,
+        shift_size: int = 120,
+        win_length: int = 600,
+        window: Callable = torch.hann_window,
+    ):
+        """Initialize STFT loss module."""
+        super().__init__()
+
+        self.fft_size = fft_size
+        self.shift_size = shift_size
+        self.win_length = win_length
+        self.to_mel = torchaudio.transforms.MelSpectrogram(
+            sample_rate=24000,
+            n_fft=fft_size,
+            win_length=win_length,
+            hop_length=shift_size,
+            window_fn=window,
+        )
+
+        self.spectral_convergenge_loss = SpectralConvergengeLoss()
+
+    def forward(self: STFTLoss, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Calculate forward propagation.
+        Args:
+            x (Tensor): Predicted signal (B, T).
+            y (Tensor): Groundtruth signal (B, T).
+        Returns:
+            Tensor: Spectral convergence loss value.
+            Tensor: Log STFT magnitude loss value.
+        """
+        x_mag = self.to_mel(x)
+        mean, std = -4, 4
+        x_mag = (torch.log(1e-5 + x_mag) - mean) / std
+
+        y_mag = self.to_mel(y)
+        mean, std = -4, 4
+        y_mag = (torch.log(1e-5 + y_mag) - mean) / std
+
+        sc_loss = self.spectral_convergenge_loss(x_mag, y_mag)    
+        return sc_loss
+
+
+class MultiResolutionSTFTLoss(nn.Module):
+    """Multi resolution STFT loss module."""
+
+    def __init__(
+        self: MultiResolutionSTFTLoss,
+        fft_sizes: Union[Tuple[int, ...], List[int]] = [1024, 2048, 512],
+        hop_sizes: Union[Tuple[int, ...], List[int]] = [120, 240, 50],
+        win_lengths: Union[Tuple[int, ...], List[int]] = [600, 1200, 240],
+        window: Callable = torch.hann_window,
+    ):
+        """Initialize Multi resolution STFT loss module.
+        Args:
+            fft_sizes (list): List of FFT sizes.
+            hop_sizes (list): List of hop sizes.
+            win_lengths (list): List of window lengths.
+            window (str): Window function type.
+        """
+        super().__init__()
+
+        assert len(fft_sizes) == len(hop_sizes) == len(win_lengths)
+
+        self.stft_losses = torch.nn.ModuleList()
+        for fs, ss, wl in zip(fft_sizes, hop_sizes, win_lengths):
+            self.stft_losses += [STFTLoss(fs, ss, wl, window)]
+
+    def forward(
+        self: MultiResolutionSTFTLoss,
+        x: torch.Tensor,
+        y: torch.Tensor,
+    ) -> torch.Tensor:
+        """Calculate forward propagation.
+        Args:
+            x (Tensor): Predicted signal (B, T).
+            y (Tensor): Groundtruth signal (B, T).
+        Returns:
+            Tensor: Multi resolution spectral convergence loss value.
+            Tensor: Multi resolution log STFT magnitude loss value.
+        """
+        sc_loss = 0.0
+        for f in self.stft_losses:
+            sc_l = f(x, y)
+            sc_loss += sc_l
+        sc_loss /= len(self.stft_losses)
+
+        return sc_loss
 
 
 def feature_loss(
