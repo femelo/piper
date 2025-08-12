@@ -5,10 +5,10 @@ from typing import Optional, Tuple
 
 import torch
 from torch import nn
-from encoders import TextEncoder, PosteriorEncoder
-from decoders import Generator
-from flow import InvertibleNormalizingFlow
-from duration_predictors import DurationPredictor, StochasticDurationPredictor
+from .encoders import TextEncoder, PosteriorEncoder
+from .decoders import Generator
+from .flow import InvertibleNormalizingFlow
+from .duration_predictors import DurationPredictor, StochasticDurationPredictor
 
 
 from . import commons, monotonic_align
