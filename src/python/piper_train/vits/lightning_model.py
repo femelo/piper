@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 
 from .commons import slice_segments
 from .dataset import Batch, PiperDataset, UtteranceCollate
+
 from .losses import (
     MultiResolutionSTFTLoss,
     DiscriminatorLoss,
@@ -18,7 +19,7 @@ from .losses import (
     WavLMLoss,
     kl_loss,
 )
-from .mel_processing import spec_to_mel_torch
+
 from .discriminators import (
     MultiPeriodDiscriminator,
     MultiResSpecDiscriminator,
@@ -264,16 +265,9 @@ class VitsModel(L.LightningModule):
             z_mask,
             (_z, z_p, m_p, logs_p, _m_q, logs_q),
         ) = self.model_g(x, x_lengths, spec, spec_lengths, speaker_ids)
+
         self._y_hat = y_hat
-        # Convert target spectrogram to Mel spectrogram in a pytorch tensor
-        mel = spec_to_mel_torch(
-            spec,
-            self.hparams.filter_length,
-            self.hparams.mel_channels,
-            self.hparams.sample_rate,
-            self.hparams.mel_fmin,
-            self.hparams.mel_fmax,
-        )
+
         # Collect predicted Mel spectrogram segments
         y = slice_segments(
             y,
