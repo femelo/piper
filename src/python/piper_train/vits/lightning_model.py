@@ -7,7 +7,6 @@ from argparse import ArgumentParser
 import lightning as L
 import torch
 from torch import autocast
-from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset, random_split
 
 from .commons import slice_segments
@@ -17,12 +16,9 @@ from .losses import (
     DiscriminatorLoss,
     GeneratorLoss,
     WavLMLoss,
-    discriminator_loss,
-    feature_loss,
-    generator_loss,
     kl_loss,
 )
-from .mel_processing import mel_spectrogram_torch, spec_to_mel_torch
+from .mel_processing import spec_to_mel_torch
 from .discriminators import (
     MultiPeriodDiscriminator,
     MultiResSpecDiscriminator,
@@ -363,20 +359,38 @@ class VitsModel(L.LightningModule):
                 eps=self.hparams.eps,
             ),
             torch.optim.AdamW(
-                self.model_d.parameters(),
+                self.mpd.parameters(),
+                lr=self.hparams.learning_rate,
+                betas=self.hparams.betas,
+                eps=self.hparams.eps,
+            ),
+            torch.optim.AdamW(
+                self.msd.parameters(),
+                lr=self.hparams.learning_rate,
+                betas=self.hparams.betas,
+                eps=self.hparams.eps,
+            ),
+            torch.optim.AdamW(
+                self.wd.parameters(),
                 lr=self.hparams.learning_rate,
                 betas=self.hparams.betas,
                 eps=self.hparams.eps,
             ),
         ]
-        schedulers = [
-            torch.optim.lr_scheduler.ExponentialLR(
-                optimizers[0], gamma=self.hparams.lr_decay
-            ),
-            torch.optim.lr_scheduler.ExponentialLR(
-                optimizers[1], gamma=self.hparams.lr_decay
-            ),
-        ]
+        optimizers = []
+        schedulers = []
+        for module in (self.model_g, self.mpd, self.msd, self.wd):
+            optimizer = torch.optim.AdamW(
+                module.parameters(),
+                lr=self.hparams.learning_rate,
+                betas=self.hparams.betas,
+                eps=self.hparams.eps,
+            )
+            scheduler = torch.optim.lr_scheduler.ExponentialLR(
+                optimizer, gamma=self.hparams.lr_decay
+            )
+            optimizers.append(optimizer)
+            schedulers.append(scheduler)
 
         return optimizers, schedulers
 
