@@ -244,6 +244,10 @@ class VitsModel(L.LightningModule):
         )
 
     def training_step(self: VitsModel, batch: Batch, batch_idx: int, optimizer_idx: int) -> torch.Tensor:
+        # TODO: decide what to do here: manual or automatic optimization
+        # RuntimeError: Training with multiple optimizers is only supported with manual optimization.
+        # Remove the `optimizer_idx` argument from `training_step`, set `self.automatic_optimization = False`
+        # and access your optimizers in `training_step` with `opt1, opt2, ... = self.optimizers()`.
         if optimizer_idx == 0:
             return self.training_step_g(batch)
 
@@ -380,32 +384,6 @@ class VitsModel(L.LightningModule):
     def configure_optimizers(
         self: VitsModel
     ) -> Tuple[List[torch.optim.Optimizer], List[torch.optim.lr_scheduler.LRScheduler]]:
-        optimizers = [
-            torch.optim.AdamW(
-                self.model_g.parameters(),
-                lr=self.hparams.learning_rate,
-                betas=self.hparams.betas,
-                eps=self.hparams.eps,
-            ),
-            torch.optim.AdamW(
-                self.mpd.parameters(),
-                lr=self.hparams.learning_rate,
-                betas=self.hparams.betas,
-                eps=self.hparams.eps,
-            ),
-            torch.optim.AdamW(
-                self.msd.parameters(),
-                lr=self.hparams.learning_rate,
-                betas=self.hparams.betas,
-                eps=self.hparams.eps,
-            ),
-            torch.optim.AdamW(
-                self.wd.parameters(),
-                lr=self.hparams.learning_rate,
-                betas=self.hparams.betas,
-                eps=self.hparams.eps,
-            ),
-        ]
         optimizers = []
         schedulers = []
         for module in (self.model_g, self.mpd, self.msd, self.wd):
