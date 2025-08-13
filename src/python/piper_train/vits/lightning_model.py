@@ -5,6 +5,8 @@ from typing import Any, List, Optional, Tuple, Union
 from argparse import ArgumentParser
 
 import lightning as L
+from lightning.fabric import Fabric
+from wandb.integration.lightning.fabric import WandbLogger
 import torch
 from torch import autocast
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -36,6 +38,9 @@ class VitsModel(L.LightningModule):
         self: VitsModel,
         num_symbols: int,
         num_speakers: int,
+        *,
+        # run_id
+        run_id: Optional[str] = None,
         # audio
         resblock: str = "2",
         resblock_kernel_sizes: Tuple[int, ...] = (3, 5, 7),
@@ -91,6 +96,9 @@ class VitsModel(L.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
+
+        self.wnb_logger: Optional[WandbLogger] = WandbLogger(project=run_id) if run_id else None
+        self.fabric: Optional[Fabric] = Fabric(loggers=self.wnb_logger) if run_id else None
 
         if (self.hparams.num_speakers > 1) and (self.hparams.gin_channels <= 0):
             # Default gin_channels for multi-speaker model
@@ -280,7 +288,7 @@ class VitsModel(L.LightningModule):
 
         with autocast(self.device.type, enabled=False):
             # Duration loss
-            loss_dur = torch.sum(l_length.float()) * self.hparams.c_dur
+            loss_dur = torch.sum(l_length.float())
             # Likelihood loss (Mel spectrogram multi-resolution STFT loss)
             loss_mel = self.stft_loss(y.detach(), y_hat.squeeze()) * self.hparams.c_mel
             # KL-divergence loss
@@ -290,8 +298,24 @@ class VitsModel(L.LightningModule):
             # SLM loss
             loss_slm = self.wavlm_loss(y.detach(), y_hat).mean() * self.hparams.c_slm
             # Total generation loss
-            loss_gen_all = loss_gen + loss_slm + loss_mel + loss_dur + loss_kl
+            loss_gen_all = \
+                self.hparams.c_gen * loss_gen + \
+                self.hparams.c_slm * loss_slm + \
+                self.hparams.c_mel * loss_mel + \
+                self.hparams.c_dur * loss_dur + \
+                self.hparams.c_kl * loss_kl
 
+            if self.fabric is not None:
+                self.fabric.log_dict(
+                    {
+                        "loss_gen": loss_gen,
+                        "loss_slm": loss_slm,
+                        "loss_mel": loss_mel,
+                        "loss_dur": loss_dur,
+                        "loss_kl": loss_kl,
+                        "loss_gen_all": loss_gen_all,
+                    }
+                )
             self.log("loss_gen_all", loss_gen_all)
 
             return loss_gen_all
@@ -308,6 +332,12 @@ class VitsModel(L.LightningModule):
             # Total discrimination loss
             loss_dsc_all = loss_dsc
 
+            if self.fabric is not None:
+                self.fabric.log_dict(
+                    {
+                        "loss_dsc_all": loss_dsc_all,
+                    }
+                )
             self.log("loss_dsc_all", loss_dsc_all)
 
             return loss_dsc_all

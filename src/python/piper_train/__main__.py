@@ -7,7 +7,9 @@ import torch
 from lightning import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
 
+from .vits.config import TrainingArguments
 from .vits.lightning_model import VitsModel
+
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -34,9 +36,6 @@ def main():
         "--resume_from_single_speaker_checkpoint",
         help="For multi-speaker models only. Converts a single-speaker checkpoint to multi-speaker and resumes training",
     )
-    # TODO: explicitly set trainer arguments here
-    # TODO: add function to compute metrics for evaluation
-    Trainer.add_argparse_args(parser)
     VitsModel.add_model_specific_args(parser)
     parser.add_argument("--seed", type=int, default=1234)
     args = parser.parse_args()
@@ -59,12 +58,17 @@ def main():
         num_speakers = int(config["num_speakers"])
         sample_rate = int(config["audio"]["sample_rate"])
 
-    trainer = Trainer.from_argparse_args(args)
+    training_args_dict = {
+        k: getattr(args, k) for k in TrainingArguments.fields() if k in args
+    }
+    _LOGGER.debug(training_args_dict)
+    training_args = TrainingArguments(**training_args_dict)
     if args.checkpoint_epochs is not None:
-        trainer.callbacks = [ModelCheckpoint(every_n_epochs=args.checkpoint_epochs)]
+        training_args.callbacks = [ModelCheckpoint(every_n_epochs=args.checkpoint_epochs)]
         _LOGGER.debug(
             "Checkpoints will be saved every %s epoch(s)", args.checkpoint_epochs
         )
+    trainer = Trainer(**training_args.dict())
 
     dict_args = vars(args)
     if args.quality == "x-low":

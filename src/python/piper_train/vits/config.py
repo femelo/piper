@@ -1,7 +1,19 @@
 """Configuration classes"""
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from dataclasses import dataclass, field, fields
+from typing import Any, Dict, Iterable, Optional, Tuple, Type, Union
+from datetime import timedelta
+from lightning.pytorch.accelerators import Accelerator
+from lightning.pytorch.loggers import Logger
+from lightning.pytorch.profilers import Profiler
+from lightning.pytorch.strategies import Strategy
+from lightning.pytorch.callbacks import Callback
+from lightning.fabric.utilities.types import _PATH
+from lightning.pytorch.plugins import _PLUGIN_INPUT
+from lightning.pytorch.trainer.connectors.accelerator_connector import (
+    _LITERAL_WARN,
+    _PRECISION_INPUT,
+)
 
 
 @dataclass
@@ -137,6 +149,57 @@ class TrainingConfig:
     c_gen: float = 1.0
     c_slm: float = 1.0
     grad_clip: Optional[float] = None
+
+
+@dataclass
+class TrainingArguments:
+    accelerator: Union[str, Accelerator] = "auto"
+    strategy: Union[str, Strategy] = "auto"
+    devices: Union[list[int], str, int] = "auto"
+    num_nodes: int = 1
+    precision: Optional[_PRECISION_INPUT] = None
+    logger: Optional[Union[Logger, Iterable[Logger], bool]] = None
+    callbacks: Optional[Union[list[Callback], Callback]] = None
+    fast_dev_run: Union[int, bool] = False
+    max_epochs: Optional[int] = None
+    min_epochs: Optional[int] = None
+    max_steps: int = -1
+    min_steps: Optional[int] = None
+    max_time: Optional[Union[str, timedelta, dict[str, int]]] = None
+    limit_train_batches: Optional[Union[int, float]] = None
+    limit_val_batches: Optional[Union[int, float]] = None
+    limit_test_batches: Optional[Union[int, float]] = None
+    limit_predict_batches: Optional[Union[int, float]] = None
+    overfit_batches: Union[int, float] = 0.0
+    val_check_interval: Optional[Union[int, float]] = None
+    check_val_every_n_epoch: Optional[int] = 1
+    num_sanity_val_steps: Optional[int] = None
+    log_every_n_steps: Optional[int] = None
+    enable_checkpointing: Optional[bool] = None
+    enable_progress_bar: Optional[bool] = None
+    enable_model_summary: Optional[bool] = None
+    accumulate_grad_batches: int = 1
+    gradient_clip_val: Optional[Union[int, float]] = None
+    gradient_clip_algorithm: Optional[str] = None
+    deterministic: Optional[Union[bool, _LITERAL_WARN]] = None
+    benchmark: Optional[bool] = None
+    inference_mode: bool = True
+    use_distributed_sampler: bool = True
+    profiler: Optional[Union[Profiler, str]] = None
+    detect_anomaly: bool = False
+    barebones: bool = False
+    plugins: Optional[Union[_PLUGIN_INPUT, list[_PLUGIN_INPUT]]] = None
+    sync_batchnorm: bool = False
+    reload_dataloaders_every_n_epochs: int = 0
+    default_root_dir: Optional[_PATH] = None
+    model_registry: Optional[str] = None
+
+    def dict(self: TrainingArguments) -> Dict[str, Any]:
+        return self.__dict__
+
+    @classmethod
+    def fields(cls: Type[TrainingArguments]) -> list[str]:
+        return [f.name for f in fields(cls)]
 
 
 # @dataclass
