@@ -91,6 +91,7 @@ class VitsModel(L.LightningModule):
         c_mel: float = 5.0,
         c_kl: float = 1.0,
         c_gen: float = 1.0,
+        c_dsc: float = 1.0,
         c_slm: float = 1.0,
         grad_clip: Optional[float] = None,
         num_workers: int = 1,
@@ -160,9 +161,9 @@ class VitsModel(L.LightningModule):
             slm_sr=self.hparams.slm.sr,
         ).to(self.device)
         # Generation group
-        self.gen_group = nn.ModuleList([self.model_g, self.wd])
+        self.gen_group = nn.ModuleList([self.model_g])
         # Discrimination group
-        self.dsc_group = nn.ModuleList([self.mpd, self.msd])
+        self.dsc_group = nn.ModuleList([self.mpd, self.msd, self.wd])
 
         # Dataset splits
         self._train_dataset: Optional[Dataset] = None
@@ -267,7 +268,6 @@ class VitsModel(L.LightningModule):
         optimizer_d.zero_grad()
         self.untoggle_optimizer(optimizer_d)
 
-
     def training_step_g(self: VitsModel, batch: Batch) -> torch.Tensor:
         """
             Generation training step
@@ -318,12 +318,9 @@ class VitsModel(L.LightningModule):
             loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * self.hparams.c_kl
             # Generator loss
             loss_gen = self.generator_loss(y, y_hat).mean() * self.hparams.c_gen
-            # SLM loss
-            loss_slm = self.wavlm_loss(y.detach(), y_hat).mean() * self.hparams.c_slm
             # Total generation loss
             loss_gen_all = \
                 self.hparams.c_gen * loss_gen + \
-                self.hparams.c_slm * loss_slm + \
                 self.hparams.c_mel * loss_mel + \
                 self.hparams.c_dur * loss_dur + \
                 self.hparams.c_kl * loss_kl
@@ -332,7 +329,6 @@ class VitsModel(L.LightningModule):
                 self.fabric.log_dict(
                     {
                         "loss_gen": loss_gen,
-                        "loss_slm": loss_slm,
                         "loss_mel": loss_mel,
                         "loss_dur": loss_dur,
                         "loss_kl": loss_kl,
@@ -351,12 +347,16 @@ class VitsModel(L.LightningModule):
         with autocast(self.device.type, enabled=False):
             # Discrimination adversarial loss
             loss_dsc = self.discriminator_loss(y.detach().unsqueeze(1).float(), y_hat.detach()).mean()
+            # SLM loss
+            loss_slm = self.wavlm_loss(y.detach(), y_hat).mean()
             # Total discrimination loss
-            loss_dsc_all = loss_dsc
+            loss_dsc_all = self.hparams.c_dsc * loss_dsc + self.hparams.c_slm * loss_slm
 
             if self.fabric is not None:
                 self.fabric.log_dict(
                     {
+                        "loss_dsc": loss_dsc,
+                        "loss_slm": loss_slm,
                         "loss_dsc_all": loss_dsc_all,
                     }
                 )

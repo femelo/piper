@@ -147,6 +147,7 @@ class TrainingConfig:
     c_mel: float = 5.0
     c_kl: float = 1.0
     c_gen: float = 1.0
+    c_dsc: float = 1.0
     c_slm: float = 1.0
     grad_clip: Optional[float] = None
 
