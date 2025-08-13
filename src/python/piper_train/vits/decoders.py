@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 import torch
 from torch import nn
-from torch import functional as F
+from torch.nn import functional as F
 from torch.nn.utils import remove_weight_norm
 from torch.nn.utils.parametrizations import weight_norm
 from . import modules
