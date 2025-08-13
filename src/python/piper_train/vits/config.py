@@ -198,8 +198,8 @@ class TrainingArguments:
         return self.__dict__
 
     @classmethod
-    def fields(cls: Type[TrainingArguments]) -> list[str]:
-        return [f.name for f in fields(cls)]
+    def fields(cls: Type[TrainingArguments]) -> Dict[str, Any]:
+        return {f.name: f.default for f in fields(cls)}
 
 
 # @dataclass

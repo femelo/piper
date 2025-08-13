@@ -18,6 +18,12 @@ def main():
     logging.basicConfig(level=logging.DEBUG)
 
     parser = argparse.ArgumentParser()
+    for name, value in TrainingArguments.fields().items():
+        parser.add_argument(
+            f"--{name.replace('_', '-')}",
+            required=False,
+            default=value,
+        )
     parser.add_argument(
         "--dataset-dir", required=True, help="Path to pre-processed dataset directory"
     )
