@@ -8,6 +8,7 @@ import lightning as L
 from lightning.fabric import Fabric
 from wandb.integration.lightning.fabric import WandbLogger
 import torch
+from torch import nn
 from torch import autocast
 from torch.utils.data import DataLoader, Dataset, random_split
 
@@ -101,6 +102,7 @@ class VitsModel(L.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
+        self.automatic_optimization = False
 
         self.wnb_logger: Optional[WandbLogger] = WandbLogger(project=run_id) if run_id else None
         self.fabric: Optional[Fabric] = Fabric(loggers=self.wnb_logger) if run_id else None
@@ -141,7 +143,6 @@ class VitsModel(L.LightningModule):
         self.wd = WavLMDiscriminator(
             use_spectral_norm=self.hparams.use_spectral_norm
         ).to(self.device)
-
         # Losses wrappers
         self.stft_loss = MultiResolutionSTFTLoss().to(self.device)
         self.discriminator_loss = DiscriminatorLoss(
@@ -158,6 +159,10 @@ class VitsModel(L.LightningModule):
             model_sr=self.hparams.sample_rate,
             slm_sr=self.hparams.slm.sr,
         ).to(self.device)
+        # Generation group
+        self.gen_group = nn.ModuleList([self.model_g, self.wd])
+        # Discrimination group
+        self.dsc_group = nn.ModuleList([self.mpd, self.msd])
 
         # Dataset splits
         self._train_dataset: Optional[Dataset] = None
@@ -243,16 +248,25 @@ class VitsModel(L.LightningModule):
             batch_size=self.hparams.batch_size,
         )
 
-    def training_step(self: VitsModel, batch: Batch, batch_idx: int, optimizer_idx: int) -> torch.Tensor:
-        # TODO: decide what to do here: manual or automatic optimization
-        # RuntimeError: Training with multiple optimizers is only supported with manual optimization.
-        # Remove the `optimizer_idx` argument from `training_step`, set `self.automatic_optimization = False`
-        # and access your optimizers in `training_step` with `opt1, opt2, ... = self.optimizers()`.
-        if optimizer_idx == 0:
-            return self.training_step_g(batch)
+    def training_step(self: VitsModel, batch: Batch, batch_idx: int) -> torch.Tensor:
+        optimizer_g, optimizer_d = self.optimizers()
 
-        if optimizer_idx == 1:
-            return self.training_step_d(batch)
+        self.toggle_optimizer(optimizer_g)
+        loss_gen = self.training_step_g(batch)
+        self.log("loss_gen_all", loss_gen, prog_bar=True)
+        self.manual_backward(loss_gen)
+        optimizer_g.step()
+        optimizer_g.zero_grad()
+        self.untoggle_optimizer(optimizer_g)
+
+        self.toggle_optimizer(optimizer_d)
+        loss_dsc = self.training_step_d(batch)
+        self.log("loss_dsc_all", loss_dsc, prog_bar=True)
+        self.manual_backward(loss_dsc)
+        optimizer_d.step()
+        optimizer_d.zero_grad()
+        self.untoggle_optimizer(optimizer_d)
+
 
     def training_step_g(self: VitsModel, batch: Batch) -> torch.Tensor:
         """
@@ -325,7 +339,6 @@ class VitsModel(L.LightningModule):
                         "loss_gen_all": loss_gen_all,
                     }
                 )
-            self.log("loss_gen_all", loss_gen_all)
 
             return loss_gen_all
 
@@ -347,7 +360,6 @@ class VitsModel(L.LightningModule):
                         "loss_dsc_all": loss_dsc_all,
                     }
                 )
-            self.log("loss_dsc_all", loss_dsc_all)
 
             return loss_dsc_all
 
@@ -384,21 +396,19 @@ class VitsModel(L.LightningModule):
     def configure_optimizers(
         self: VitsModel
     ) -> Tuple[List[torch.optim.Optimizer], List[torch.optim.lr_scheduler.LRScheduler]]:
-        optimizers = []
-        schedulers = []
-        for module in (self.model_g, self.mpd, self.msd, self.wd):
-            optimizer = torch.optim.AdamW(
-                module.parameters(),
+        optimizers = [
+            torch.optim.AdamW(
+                group.parameters(),
                 lr=self.hparams.learning_rate,
                 betas=self.hparams.betas,
                 eps=self.hparams.eps,
-            )
-            scheduler = torch.optim.lr_scheduler.ExponentialLR(
+            ) for group in (self.gen_group, self.dsc_group)
+        ]
+        schedulers = [
+            torch.optim.lr_scheduler.ExponentialLR(
                 optimizer, gamma=self.hparams.lr_decay
-            )
-            optimizers.append(optimizer)
-            schedulers.append(scheduler)
-
+            ) for optimizer in optimizers
+        ]
         return optimizers, schedulers
 
     @staticmethod
