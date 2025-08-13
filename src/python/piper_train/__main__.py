@@ -58,8 +58,9 @@ def main():
         num_speakers = int(config["num_speakers"])
         sample_rate = int(config["audio"]["sample_rate"])
 
+    args_dict = vars(args)
     training_args_dict = {
-        k: getattr(args, k) for k in TrainingArguments.fields() if k in args
+        k: args_dict.pop(k) for k in TrainingArguments.fields() if k in args
     }
     _LOGGER.debug(training_args_dict)
     training_args = TrainingArguments(**training_args_dict)
@@ -70,7 +71,7 @@ def main():
         )
     trainer = Trainer(**training_args.dict())
 
-    dict_args = vars(args)
+    dict_args = args_dict
     if args.quality == "x-low":
         dict_args["hidden_channels"] = 96
         dict_args["inter_channels"] = 96
