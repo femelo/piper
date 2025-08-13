@@ -3,7 +3,7 @@ from typing import List, Tuple, Union
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.nn.utils import spectral_norm, weight_norm
+from torch.nn.utils.parametrizations import spectral_norm, weight_norm
 from .commons import get_padding
 from .spectral_modules import mag_stft
 
