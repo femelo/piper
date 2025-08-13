@@ -155,7 +155,7 @@ class VitsModel(L.LightningModule):
         self.wavlm_loss = WavLMLoss(
             model=self.hparams.slm.model,
             wd=self.wd,
-            sr=self.hparams.sample_rate,
+            model_sr=self.hparams.sample_rate,
             slm_sr=self.hparams.slm.sr,
         ).to(self.device)
 
