@@ -317,7 +317,7 @@ class VitsModel(L.LightningModule):
             # KL-divergence loss
             loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask)
             # Generator loss
-            loss_gen = self.generator_loss(y, y_hat).mean()
+            loss_gen = self.generator_loss(y.detach(), y_hat).mean()
             # Total generation loss
             loss_gen_all = \
                 self.hparams.c_gen * loss_gen + \
@@ -341,14 +341,14 @@ class VitsModel(L.LightningModule):
     def training_step_d(self: VitsModel, batch: Batch) -> torch.Tensor:
         # Discrimination training step
         # From training_step_g
-        y = self._y
-        y_hat = self._y_hat
+        y = self._y.detach()
+        y_hat = self._y_hat.detach()
 
         with autocast(self.device.type, enabled=False):
             # Discrimination adversarial loss
-            loss_dsc = self.discriminator_loss(y.detach(), y_hat).mean()
+            loss_dsc = self.discriminator_loss(y, y_hat).mean()
             # SLM loss
-            loss_slm = self.wavlm_loss(y.detach(), y_hat).mean()
+            loss_slm = self.wavlm_loss(y, y_hat).mean()
             # Total discrimination loss
             loss_dsc_all = self.hparams.c_dsc * loss_dsc + self.hparams.c_slm * loss_slm
 
