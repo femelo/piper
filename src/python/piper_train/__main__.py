@@ -38,7 +38,7 @@ def main(args: argparse.Namespace) -> None:
 
     args_dict = vars(args)
     training_args_dict = {
-        k: args_dict.pop(k) for k in TrainingArguments.fields() if k in args
+        k: args_dict.pop(k) for k in TrainingArguments.names() if k in args
     }
     _LOGGER.debug(training_args_dict)
     training_args = TrainingArguments(**training_args_dict)
@@ -132,10 +132,16 @@ def load_state_dict(model, saved_state_dict):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    for name, value in TrainingArguments.fields().items():
+    
+    for name, type_, value in zip(
+        TrainingArguments.names(),
+        TrainingArguments.types(),
+        TrainingArguments.default_values(),
+    ):
         parser.add_argument(
             f"--{name.replace('_', '-')}",
             required=False,
+            type=type_,
             default=value,
         )
     parser.add_argument(
