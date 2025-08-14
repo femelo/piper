@@ -1,7 +1,8 @@
 """Configuration classes"""
 from __future__ import annotations
 from dataclasses import dataclass, field, fields
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Type, Union
+from functools import partial
+from typing import Any, Dict, cast, Iterable, List, Optional, Tuple, Type, Union
 from datetime import timedelta
 from lightning.pytorch.accelerators import Accelerator
 from lightning.pytorch.loggers import Logger
@@ -204,7 +205,7 @@ class TrainingArguments:
 
     @classmethod
     def types(cls: Type[TrainingArguments]) -> List[Any]:
-        return [f.type for f in fields(cls)]
+        return [f.type if callable(f.type) else partial(cast, f.type) for f in fields(cls)]
 
     @classmethod
     def default_values(cls: Type[TrainingArguments]) -> List[Any]:
