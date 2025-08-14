@@ -263,7 +263,7 @@ class VitsModel(L.LightningModule):
         self.toggle_optimizer(optimizer_d)
         loss_dsc = self.training_step_d(batch)
         self.log("loss_dsc_all", loss_dsc, prog_bar=True)
-        self.manual_backward(loss_dsc, retrain_graph=True)
+        self.manual_backward(loss_dsc)
         optimizer_d.step()
         optimizer_d.zero_grad()
         self.untoggle_optimizer(optimizer_d)
