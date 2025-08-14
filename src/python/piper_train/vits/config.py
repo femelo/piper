@@ -157,7 +157,7 @@ class TrainingConfig:
 class TrainingArguments:
     accelerator: Union[str, Accelerator] = "auto"
     strategy: Union[str, Strategy] = "auto"
-    devices: Union[list[int], str, int] = "auto"
+    devices: Union[list[int], str, int] = 1
     num_nodes: int = 1
     precision: Optional[_PRECISION_INPUT] = 32
     logger: Optional[Union[Logger, Iterable[Logger], bool]] = None
