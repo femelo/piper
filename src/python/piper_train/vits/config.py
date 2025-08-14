@@ -159,14 +159,14 @@ class TrainingArguments:
     strategy: Union[str, Strategy] = "auto"
     devices: Union[list[int], str, int] = "auto"
     num_nodes: int = 1
-    precision: Optional[_PRECISION_INPUT] = None
+    precision: Optional[_PRECISION_INPUT] = 32
     logger: Optional[Union[Logger, Iterable[Logger], bool]] = None
     callbacks: Optional[Union[list[Callback], Callback]] = None
     fast_dev_run: Union[int, bool] = False
-    max_epochs: Optional[int] = None
-    min_epochs: Optional[int] = None
+    max_epochs: Optional[int] = 2
+    min_epochs: Optional[int] = 1
     max_steps: int = -1
-    min_steps: Optional[int] = None
+    min_steps: Optional[int] = 1
     max_time: Optional[Union[str, timedelta, dict[str, int]]] = None
     limit_train_batches: Optional[Union[int, float]] = None
     limit_val_batches: Optional[Union[int, float]] = None
@@ -205,7 +205,15 @@ class TrainingArguments:
 
     @classmethod
     def types(cls: Type[TrainingArguments]) -> List[Any]:
-        return [f.type if callable(f.type) else partial(cast, f.type) for f in fields(cls)]
+        types_ = []
+        for f in fields(cls):
+            if callable(f.type):
+                types_.append(f.type)
+            elif callable(type(f.default)):
+                types_.append(type(f.default))
+            else:
+                types_.append(partial(cast, f.type))
+        return types_
 
     @classmethod
     def default_values(cls: Type[TrainingArguments]) -> List[Any]:
