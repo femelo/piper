@@ -5,4 +5,6 @@ numpy
 onnxruntime
 lightning
 torch
+torchaudio
+transformers
 wandb

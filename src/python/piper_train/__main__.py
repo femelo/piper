@@ -14,37 +14,9 @@ from .vits.lightning_model import VitsModel
 _LOGGER = logging.getLogger(__package__)
 
 
-def main():
+def main(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.DEBUG)
 
-    parser = argparse.ArgumentParser()
-    for name, value in TrainingArguments.fields().items():
-        parser.add_argument(
-            f"--{name.replace('_', '-')}",
-            required=False,
-            default=value,
-        )
-    parser.add_argument(
-        "--dataset-dir", required=True, help="Path to pre-processed dataset directory"
-    )
-    parser.add_argument(
-        "--checkpoint-epochs",
-        type=int,
-        help="Save checkpoint every N epochs (default: 1)",
-    )
-    parser.add_argument(
-        "--quality",
-        default="medium",
-        choices=("x-low", "medium", "high"),
-        help="Quality/size of model (default: medium)",
-    )
-    parser.add_argument(
-        "--resume_from_single_speaker_checkpoint",
-        help="For multi-speaker models only. Converts a single-speaker checkpoint to multi-speaker and resumes training",
-    )
-    VitsModel.add_model_specific_args(parser)
-    parser.add_argument("--seed", type=int, default=1234)
-    args = parser.parse_args()
     _LOGGER.debug(args)
 
     args.dataset_dir = Path(args.dataset_dir)
@@ -158,4 +130,44 @@ def load_state_dict(model, saved_state_dict):
 
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser()
+    for name, value in TrainingArguments.fields().items():
+        parser.add_argument(
+            f"--{name.replace('_', '-')}",
+            required=False,
+            default=value,
+        )
+    parser.add_argument(
+        "--dataset-dir",
+        required=True,
+        help="Path to pre-processed dataset directory",
+    )
+    parser.add_argument(
+        "--checkpoint-epochs",
+        type=int,
+        help="Save checkpoint every N epochs (default: 1)",
+    )
+    parser.add_argument(
+        "--quality",
+        default="medium",
+        choices=("x-low", "medium", "high"),
+        help="Quality/size of model (default: medium)",
+    )
+    parser.add_argument(
+        "--resume_from_single_speaker_checkpoint",
+        help=(
+            "For multi-speaker models only. "
+            "Converts a single-speaker checkpoint to "
+            "multi-speaker and resumes training"
+        ),
+    )
+    VitsModel.add_model_specific_args(parser)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=1234,
+    )
+    args = parser.parse_args()
+
+    main(args)

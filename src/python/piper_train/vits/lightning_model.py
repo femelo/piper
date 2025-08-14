@@ -313,11 +313,11 @@ class VitsModel(L.LightningModule):
             # Duration loss
             loss_dur = torch.sum(l_length.float())
             # Likelihood loss (Mel spectrogram multi-resolution STFT loss)
-            loss_mel = self.stft_loss(y.detach(), y_hat.squeeze()) * self.hparams.c_mel
+            loss_mel = self.stft_loss(y.detach(), y_hat.squeeze()).mean()
             # KL-divergence loss
-            loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * self.hparams.c_kl
+            loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask)
             # Generator loss
-            loss_gen = self.generator_loss(y, y_hat).mean() * self.hparams.c_gen
+            loss_gen = self.generator_loss(y, y_hat).mean()
             # Total generation loss
             loss_gen_all = \
                 self.hparams.c_gen * loss_gen + \
@@ -346,7 +346,7 @@ class VitsModel(L.LightningModule):
 
         with autocast(self.device.type, enabled=False):
             # Discrimination adversarial loss
-            loss_dsc = self.discriminator_loss(y.detach().unsqueeze(1).float(), y_hat.detach()).mean()
+            loss_dsc = self.discriminator_loss(y.detach(), y_hat).mean()
             # SLM loss
             loss_slm = self.wavlm_loss(y.detach(), y_hat).mean()
             # Total discrimination loss
@@ -364,7 +364,10 @@ class VitsModel(L.LightningModule):
             return loss_dsc_all
 
     def validation_step(self: VitsModel, batch: Batch, batch_idx: int) -> torch.Tensor:
-        val_loss = self.training_step_g(batch) + self.training_step_d(batch)
+        with torch.no_grad():
+            loss_gen = self.training_step_g(batch)
+            loss_dsc = self.training_step_d(batch)
+        val_loss = loss_gen + loss_dsc
         self.log("val_loss", val_loss)
 
         # Generate audio examples
