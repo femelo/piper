@@ -6,7 +6,8 @@ from typing import Optional, Tuple
 import torch
 from torch import nn
 from .encoders import TextEncoder, PosteriorEncoder
-from .decoders import Generator
+# from .decoders import Generator
+from .decoders import VocosDecoder
 from .flow import InvertibleNormalizingFlow
 from .duration_predictors import DurationPredictor, StochasticDurationPredictor
 
@@ -99,15 +100,24 @@ class SynthesizerTrn(nn.Module):
             p_dropout,
         )
         # Decoder
-        self.dec = Generator(
-            inter_channels,
-            resblock,
-            resblock_kernel_sizes,
-            resblock_dilation_sizes,
-            upsample_rates,
-            upsample_initial_channel,
-            upsample_kernel_sizes,
-            gin_channels=gin_channels,
+        # self.dec = Generator(
+        #     inter_channels,
+        #     resblock,
+        #     resblock_kernel_sizes,
+        #     resblock_dilation_sizes,
+        #     upsample_rates,
+        #     upsample_initial_channel,
+        #     upsample_kernel_sizes,
+        #     gin_channels=gin_channels,
+        # )
+        self.dec = VocosDecoder(
+            input_channels=inter_channels,
+            dim=384,
+            intermediate_dim=1152,
+            num_layers=8,
+            isft_n_fft=1280,
+            isft_hop_length=256,
+            isft_padding="same",
         )
         # Posterior encoder (only needed for training)
         self.enc_q = PosteriorEncoder(

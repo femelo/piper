@@ -254,7 +254,7 @@ class VocosDecoder(torch.nn.Module):
             dim,
             isft_n_fft,
             isft_hop_length,
-            padding=isft_padding
+            padding=isft_padding,
         )
 
     def forward(
@@ -275,4 +275,7 @@ class VocosDecoder(torch.nn.Module):
         """
         x = self.backbone(features_input, **kwargs)
         audio_output = self.head(x)
-        return audio_output
+        return audio_output.unsqueeze(1)
+
+    def remove_weight_norm(self: VocosDecoder) -> None:
+        pass
