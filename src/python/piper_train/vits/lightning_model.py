@@ -33,6 +33,8 @@ from .config import SLMModelConfig
 
 
 _LOGGER = logging.getLogger("vits.lightning_model")
+_WNB_LOGGER: WandbLogger = WandbLogger(project="piper-train")
+_FABRIC: Fabric = Fabric(loggers=_WNB_LOGGER)
 
 
 class VitsModel(L.LightningModule):
@@ -41,8 +43,6 @@ class VitsModel(L.LightningModule):
         num_symbols: int,
         num_speakers: int,
         *,
-        # run_id
-        run_id: Optional[str] = None,
         # audio
         resblock: str = "2",
         resblock_kernel_sizes: Tuple[int, ...] = (3, 5, 7),
@@ -104,9 +104,6 @@ class VitsModel(L.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.automatic_optimization = False
-
-        self.wnb_logger: Optional[WandbLogger] = WandbLogger(project=run_id) if run_id else None
-        self.fabric: Optional[Fabric] = Fabric(loggers=self.wnb_logger) if run_id else None
 
         if (self.hparams.num_speakers > 1) and (self.hparams.gin_channels <= 0):
             # Default gin_channels for multi-speaker model
@@ -338,18 +335,17 @@ class VitsModel(L.LightningModule):
                 self.hparams.c_dur * loss_dur + \
                 self.hparams.c_kl * loss_kl
 
-            if self.fabric is not None:
-                self.fabric.log_dict(
-                    {
-                        "loss_gen": loss_gen,
-                        "loss_gen_slm": loss_gen_slm,
-                        "loss_slm": loss_slm,
-                        "loss_mel": loss_mel,
-                        "loss_dur": loss_dur,
-                        "loss_kl": loss_kl,
-                        "loss_gen_all": loss_gen_all,
-                    }
-                )
+            _FABRIC.log_dict(
+                {
+                    "loss_gen": loss_gen,
+                    "loss_gen_slm": loss_gen_slm,
+                    "loss_slm": loss_slm,
+                    "loss_mel": loss_mel,
+                    "loss_dur": loss_dur,
+                    "loss_kl": loss_kl,
+                    "loss_gen_all": loss_gen_all,
+                }
+            )
 
             return loss_gen_all
 
@@ -369,14 +365,13 @@ class VitsModel(L.LightningModule):
             # Total discrimination loss
             loss_dsc_all = self.hparams.c_dsc * loss_dsc + self.hparams.c_slm * loss_dsc_slm
 
-            if self.fabric is not None:
-                self.fabric.log_dict(
-                    {
-                        "loss_dsc": loss_dsc,
-                        "loss_dsc_slm": loss_dsc_slm,
-                        "loss_dsc_all": loss_dsc_all,
-                    }
-                )
+            _FABRIC.log_dict(
+                {
+                    "loss_dsc": loss_dsc,
+                    "loss_dsc_slm": loss_dsc_slm,
+                    "loss_dsc_all": loss_dsc_all,
+                }
+            )
 
             return loss_dsc_all
 

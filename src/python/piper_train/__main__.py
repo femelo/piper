@@ -145,11 +145,6 @@ if __name__ == "__main__":
             default=value,
         )
     parser.add_argument(
-        "--run-id",
-        required=False,
-        default=None,
-    )
-    parser.add_argument(
         "--dataset-dir",
         required=True,
         help="Path to pre-processed dataset directory",
