@@ -297,6 +297,8 @@ class WavLMLoss(nn.Module):
     ) -> None:
         super().__init__()
         self.wavlm = AutoModel.from_pretrained(model)
+        for param in self.wavlm.base_model.parameters():
+            param.requires_grad = False
         self.wd = wd
         self.resample = torchaudio.transforms.Resample(model_sr, slm_sr)
 
