@@ -231,9 +231,9 @@ class SynthesizerTrn(nn.Module):
             l_length = l_length / torch.sum(x_mask)
         else:
             # Deterministic duration prediction
-            logw_ = torch.log(w + 1e-6) * x_mask
-            logw = self.dp(x, x_mask, g=g)
-            l_length = torch.sum((logw - logw_) ** 2, [1, 2]) / torch.sum(
+            log_w_ = torch.log(w + 1e-6) * x_mask
+            log_w = self.dp(x, x_mask, g=g)
+            l_length = torch.sum((log_w - log_w_) ** 2, [1, 2]) / torch.sum(
                 x_mask
             )  # for averaging
 
