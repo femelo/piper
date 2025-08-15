@@ -51,7 +51,7 @@ class STFTLoss(nn.Module):
         self.shift_size = shift_size
         self.win_length = win_length
         self.to_mel = torchaudio.transforms.MelSpectrogram(
-            sample_rate=24000,
+            sample_rate=22050,
             n_fft=fft_size,
             win_length=win_length,
             hop_length=shift_size,
@@ -300,39 +300,45 @@ class WavLMLoss(nn.Module):
         self.wd = wd
         self.resample = torchaudio.transforms.Resample(model_sr, slm_sr)
 
-    def forward(self: WavLMLoss, wav: torch.Tensor, y_rec: torch.Tensor) -> torch.Tensor:
+    def encode(self: WavLMLoss, x: torch.Tensor) -> List[torch.Tensor]:
+        x_r = self.resample(x)
+        embeddings = self.wavlm(input_values=x_r.squeeze(), output_hidden_states=True).hidden_states
+
+        return list(embeddings)
+
+    def forward(self: WavLMLoss, y_wav: torch.Tensor, y_rec: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
-            wav_16 = self.resample(wav)
+            wav_16 = self.resample(y_wav)
             wav_embeddings = self.wavlm(input_values=wav_16.squeeze(), output_hidden_states=True).hidden_states
-        y_rec_16 = self.resample(y_rec)
-        y_rec_embeddings = self.wavlm(input_values=y_rec_16.squeeze(), output_hidden_states=True).hidden_states
+        rec_16 = self.resample(y_rec)
+        rec_embeddings = self.wavlm(input_values=rec_16.squeeze(), output_hidden_states=True).hidden_states
 
         floss = 0.0
-        for er, eg in zip(wav_embeddings, y_rec_embeddings):
+        for er, eg in zip(wav_embeddings, rec_embeddings):
             floss += torch.mean(torch.abs(er - eg))
 
         return floss.mean()
 
     def generator(self: WavLMLoss, y_rec: torch.Tensor) -> torch.Tensor:
-        y_rec_16 = self.resample(y_rec)
-        y_rec_embeddings = self.wavlm(input_values=y_rec_16.squeeze(), output_hidden_states=True).hidden_states
-        y_rec_embeddings = torch.stack(y_rec_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
-        y_df_hat_g = self.wd(y_rec_embeddings)
+        rec_16 = self.resample(y_rec)
+        rec_embeddings = self.wavlm(input_values=rec_16.squeeze(), output_hidden_states=True).hidden_states
+        rec_embeddings = torch.stack(rec_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
+        y_df_hat_g = self.wd(rec_embeddings)
         loss_gen = torch.mean((1.0 - y_df_hat_g) ** 2)
 
         return loss_gen
 
-    def discriminator(self: WavLMLoss, wav: torch.Tensor, y_rec: torch.Tensor) -> torch.Tensor:
+    def discriminator(self: WavLMLoss, y_wav: torch.Tensor, y_rec: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
-            wav_16 = self.resample(wav)
+            wav_16 = self.resample(y_wav)
             wav_embeddings = self.wavlm(input_values=wav_16.squeeze(), output_hidden_states=True).hidden_states
-            y_rec_16 = self.resample(y_rec)
-            y_rec_embeddings = self.wavlm(input_values=y_rec_16.squeeze(), output_hidden_states=True).hidden_states
+            rec_16 = self.resample(y_rec)
+            rec_embeddings = self.wavlm(input_values=rec_16.squeeze(), output_hidden_states=True).hidden_states
 
-            y_embeddings = torch.stack(wav_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
-            y_rec_embeddings = torch.stack(y_rec_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
+            y_wav_embeddings = torch.stack(wav_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
+            y_rec_embeddings = torch.stack(rec_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
 
-        y_d_rs = self.wd(y_embeddings)
+        y_d_rs = self.wd(y_wav_embeddings)
         y_d_gs = self.wd(y_rec_embeddings)
 
         y_df_hat_r, y_df_hat_g = y_d_rs, y_d_gs
@@ -343,12 +349,51 @@ class WavLMLoss(nn.Module):
 
         return loss_disc_f.mean()
 
-    def discriminator_forward(self: WavLMLoss, wav: torch.Tensor) -> torch.Tensor:
+    def discriminator_forward(self: WavLMLoss, y_wav: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
-            wav_16 = self.resample(wav)
+            wav_16 = self.resample(y_wav)
             wav_embeddings = self.wavlm(input_values=wav_16.squeeze(), output_hidden_states=True).hidden_states
-            y_embeddings = torch.stack(wav_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
+            y_wav_embeddings = torch.stack(wav_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
 
-        y_d_rs = self.wd(y_embeddings)
+        y_d_rs = self.wd(y_wav_embeddings)
 
         return y_d_rs
+
+    def loss_from_embeddings(
+        self: WavLMLoss,
+        wav_embeddings: List[torch.Tensor],
+        rec_embeddings: List[torch.Tensor],
+    ) -> torch.Tensor:
+        floss = 0.0
+        for er, eg in zip(wav_embeddings, rec_embeddings):
+            floss += torch.mean(torch.abs(er - eg))
+
+        return floss.mean()
+
+    def generator_from_embeddings(
+        self: WavLMLoss,
+        rec_embeddings: List[torch.Tensor],
+    ) -> torch.Tensor:
+        y_rec_embeddings = torch.stack(rec_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
+        y_df_hat_g = self.wd(y_rec_embeddings)
+        loss_gen = torch.mean((1.0 - y_df_hat_g) ** 2)
+
+        return loss_gen
+
+    def discriminator_from_embeddings(
+        self: WavLMLoss,
+        wav_embeddings: List[torch.Tensor],
+        rec_embeddings: List[torch.Tensor],
+    ) -> torch.Tensor:
+        y_wav_embeddings = torch.stack(wav_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
+        y_rec_embeddings = torch.stack(rec_embeddings, dim=1).transpose(-1, -2).flatten(start_dim=1, end_dim=2)
+        y_d_rs = self.wd(y_wav_embeddings)
+        y_d_gs = self.wd(y_rec_embeddings)
+
+        y_df_hat_r, y_df_hat_g = y_d_rs, y_d_gs
+
+        r_loss = torch.mean((1.0 - y_df_hat_r) ** 2)
+        g_loss = torch.mean((y_df_hat_g) ** 2)
+        loss_disc_f = r_loss + g_loss
+
+        return loss_disc_f.mean()
