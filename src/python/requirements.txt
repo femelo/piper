@@ -4,7 +4,7 @@ librosa
 numpy
 onnxruntime
 lightning
-torch
+torch>=2.5
 torchaudio
 transformers
 wandb
