@@ -5,8 +5,8 @@ import torch
 from torch import nn
 from torch.nn import Conv1d
 from torch.nn import functional as F
-from torch.nn.utils import remove_weight_norm
 from torch.nn.utils.parametrizations import weight_norm
+from torch.nn.utils.parametrize import remove_parametrizations
 
 from .commons import fused_add_tanh_sigmoid_multiply, get_padding, init_weights
 from .transforms import piecewise_rational_quadratic_transform
@@ -211,11 +211,11 @@ class WN(torch.nn.Module):
 
     def remove_weight_norm(self):
         if self.gin_channels != 0:
-            torch.nn.utils.remove_weight_norm(self.cond_layer)
+            remove_parametrizations(self.cond_layer, "weight")
         for l in self.in_layers:
-            torch.nn.utils.remove_weight_norm(l)
+            remove_parametrizations(l, "weight")
         for l in self.res_skip_layers:
-            torch.nn.utils.remove_weight_norm(l)
+            remove_parametrizations(l, "weight")
 
 
 class ResBlock1(torch.nn.Module):
@@ -316,9 +316,9 @@ class ResBlock1(torch.nn.Module):
 
     def remove_weight_norm(self):
         for l in self.convs1:
-            remove_weight_norm(l)
+            remove_parametrizations(l, "weight")
         for l in self.convs2:
-            remove_weight_norm(l)
+            remove_parametrizations(l, "weight")
 
 
 class ResBlock2(torch.nn.Module):
@@ -366,7 +366,7 @@ class ResBlock2(torch.nn.Module):
 
     def remove_weight_norm(self):
         for l in self.convs:
-            remove_weight_norm(l)
+            remove_parametrizations(l, "weight")
 
 
 class Log(nn.Module):

@@ -3,8 +3,8 @@ from typing import Any, Optional, Tuple
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.nn.utils import remove_weight_norm
 from torch.nn.utils.parametrizations import weight_norm
+from torch.nn.utils.parametrize import remove_parametrizations
 from . import modules
 from .commons import init_weights
 from .spectral_modules import ISTFT
@@ -88,7 +88,7 @@ class Generator(nn.Module):
     def remove_weight_norm(self: Generator) -> None:
         print("Removing weight norm...")
         for l in self.ups:
-            remove_weight_norm(l)
+            remove_parametrizations(l, "weight")
         for l in self.resblocks:
             l.remove_weight_norm()
 
