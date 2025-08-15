@@ -131,7 +131,7 @@ class VitsModel(L.LightningModule):
             n_speakers=self.hparams.num_speakers,
             gin_channels=self.hparams.gin_channels,
             use_sdp=self.hparams.use_sdp,
-        )
+        ).to(self.device)
 
         # Discriminators
         self.mpd = MultiPeriodDiscriminator(
