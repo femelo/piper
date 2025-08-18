@@ -94,10 +94,10 @@ def main() -> None:
     scales = torch.FloatTensor([0.667, 1.0, 0.8])
     dummy_input = (sequences, sequence_lengths, scales, sid)
 
-    batch_size = torch.export.Dim.AUTO
-    phone_seq_len = torch.export.Dim.AUTO
-    scale_size = torch.export.Dim.AUTO
-    # time_seq_len = torch.export.Dim.AUTO
+    batch_size = torch.export.Dim.DYNAMIC
+    phone_seq_len = torch.export.Dim.DYNAMIC
+    scale_size = torch.export.Dim("scale_size", min=3)
+    # time_seq_len = torch.export.Dim("time_seq_len", min=1)
 
     # Export
     torch.onnx.export(
