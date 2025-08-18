@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 from torch.nn import functional as F
@@ -106,10 +106,13 @@ def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels):
     return acts
 
 
-def sequence_mask(length, max_length: Optional[int] = None):
+def sequence_mask(
+    length: torch.Tensor,
+    max_length: Optional[Union[int, torch.Tensor]] = None,
+) -> torch.Tensor:
     if max_length is None:
         max_length = length.max()
-    x = torch.arange(max_length, dtype=length.dtype, device=length.device)
+    x = torch.arange(0, max_length, dtype=length.dtype, device=length.device)
     return x.unsqueeze(0) < length.unsqueeze(1)
 
 
@@ -122,6 +125,7 @@ def generate_path(duration, mask):
     cum_duration = torch.cumsum(duration, -1)
 
     cum_duration_flat = cum_duration.view(b * t_x)
+    # cum_duration_flat = cum_duration.flatten()
     path = sequence_mask(cum_duration_flat, t_y).type_as(mask)
     path = path.view(b, t_x, t_y)
     path = path - F.pad(path, (0, 0, 1, 0, 0, 0))[:, :-1]

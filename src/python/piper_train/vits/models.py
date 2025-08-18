@@ -311,9 +311,7 @@ class SynthesizerTrn(nn.Module):
         w_ceil = torch.ceil(w)
         z_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
         # Predicted masks
-        z_mask = torch.unsqueeze(
-            commons.sequence_mask(z_lengths, z_lengths.max()), 1
-        ).type_as(x_mask)
+        z_mask = commons.sequence_mask(z_lengths, z_lengths.max()).unsqueeze(1).type_as(x_mask)
         attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(z_mask, -1)
         # Predicted alignment matrices
         attn = commons.generate_path(w_ceil, attn_mask)

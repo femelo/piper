@@ -74,7 +74,7 @@ class ISTFT(nn.Module):
             raise ValueError("Padding must be 'center' or 'same'.")
 
         assert spec.dim() == 3, "Expected a 3D tensor as input"
-        B, N, T = spec.shape
+        _B, _N, T = spec.shape
 
         # Inverse FFT
         ifft = torch.fft.irfft(spec, self.n_fft, dim=1, norm="backward")
@@ -93,7 +93,11 @@ class ISTFT(nn.Module):
         ).squeeze()[pad:-pad]
 
         # Normalize
-        assert (window_envelope > 1e-11).all()
+        # FIXME: changed to allow onnx export
+        # assert (window_envelope > 1e-11).all()
+        window_envelope = window_envelope.maximum(
+            torch.Tensor([1e-11], device=window_envelope.device)
+        )
         y = y / window_envelope
 
         return y

@@ -1,9 +1,8 @@
 import math
-import typing
+from typing import Optional, Tuple
 
 import torch
 from torch import nn
-from torch.nn import Conv1d
 from torch.nn import functional as F
 from torch.nn.utils.parametrizations import weight_norm
 from torch.nn.utils.parametrize import remove_parametrizations
@@ -130,7 +129,7 @@ class DDSConv(nn.Module):
         return x * x_mask
 
 
-class WN(torch.nn.Module):
+class WN(nn.Module):
     def __init__(
         self,
         hidden_channels: int,
@@ -149,27 +148,27 @@ class WN(torch.nn.Module):
         self.gin_channels = gin_channels
         self.p_dropout = p_dropout
 
-        self.in_layers = torch.nn.ModuleList()
-        self.res_skip_layers = torch.nn.ModuleList()
+        self.in_layers = nn.ModuleList()
+        self.res_skip_layers = nn.ModuleList()
         self.drop = nn.Dropout(p_dropout)
 
         if gin_channels != 0:
-            cond_layer = torch.nn.Conv1d(
+            cond_layer = nn.Conv1d(
                 gin_channels, 2 * hidden_channels * n_layers, 1
             )
-            self.cond_layer = torch.nn.utils.weight_norm(cond_layer, name="weight")
+            self.cond_layer = weight_norm(cond_layer, name="weight")
 
         for i in range(n_layers):
             dilation = dilation_rate ** i
             padding = int((kernel_size * dilation - dilation) / 2)
-            in_layer = torch.nn.Conv1d(
+            in_layer = nn.Conv1d(
                 hidden_channels,
                 2 * hidden_channels,
                 kernel_size,
                 dilation=dilation,
                 padding=padding,
             )
-            in_layer = torch.nn.utils.weight_norm(in_layer, name="weight")
+            in_layer = weight_norm(in_layer, name="weight")
             self.in_layers.append(in_layer)
 
             # last one is not necessary
@@ -178,8 +177,8 @@ class WN(torch.nn.Module):
             else:
                 res_skip_channels = hidden_channels
 
-            res_skip_layer = torch.nn.Conv1d(hidden_channels, res_skip_channels, 1)
-            res_skip_layer = torch.nn.utils.weight_norm(res_skip_layer, name="weight")
+            res_skip_layer = nn.Conv1d(hidden_channels, res_skip_channels, 1)
+            res_skip_layer = weight_norm(res_skip_layer, name="weight")
             self.res_skip_layers.append(res_skip_layer)
 
     def forward(self, x, x_mask, g=None, **kwargs):
@@ -218,19 +217,19 @@ class WN(torch.nn.Module):
             remove_parametrizations(l, "weight")
 
 
-class ResBlock1(torch.nn.Module):
+class ResBlock1(nn.Module):
     def __init__(
         self,
         channels: int,
         kernel_size: int = 3,
-        dilation: typing.Tuple[int] = (1, 3, 5),
+        dilation: Tuple[int, ...] = (1, 3, 5),
     ):
         super(ResBlock1, self).__init__()
         self.LRELU_SLOPE = 0.1
         self.convs1 = nn.ModuleList(
             [
                 weight_norm(
-                    Conv1d(
+                    nn.Conv1d(
                         channels,
                         channels,
                         kernel_size,
@@ -240,7 +239,7 @@ class ResBlock1(torch.nn.Module):
                     )
                 ),
                 weight_norm(
-                    Conv1d(
+                    nn.Conv1d(
                         channels,
                         channels,
                         kernel_size,
@@ -250,7 +249,7 @@ class ResBlock1(torch.nn.Module):
                     )
                 ),
                 weight_norm(
-                    Conv1d(
+                    nn.Conv1d(
                         channels,
                         channels,
                         kernel_size,
@@ -266,7 +265,7 @@ class ResBlock1(torch.nn.Module):
         self.convs2 = nn.ModuleList(
             [
                 weight_norm(
-                    Conv1d(
+                    nn.Conv1d(
                         channels,
                         channels,
                         kernel_size,
@@ -276,7 +275,7 @@ class ResBlock1(torch.nn.Module):
                     )
                 ),
                 weight_norm(
-                    Conv1d(
+                    nn.Conv1d(
                         channels,
                         channels,
                         kernel_size,
@@ -286,7 +285,7 @@ class ResBlock1(torch.nn.Module):
                     )
                 ),
                 weight_norm(
-                    Conv1d(
+                    nn.Conv1d(
                         channels,
                         channels,
                         kernel_size,
@@ -321,16 +320,16 @@ class ResBlock1(torch.nn.Module):
             remove_parametrizations(l, "weight")
 
 
-class ResBlock2(torch.nn.Module):
+class ResBlock2(nn.Module):
     def __init__(
-        self, channels: int, kernel_size: int = 3, dilation: typing.Tuple[int] = (1, 3)
+        self, channels: int, kernel_size: int = 3, dilation: Tuple[int, ...] = (1, 3)
     ):
         super(ResBlock2, self).__init__()
         self.LRELU_SLOPE = 0.1
         self.convs = nn.ModuleList(
             [
                 weight_norm(
-                    Conv1d(
+                    nn.Conv1d(
                         channels,
                         channels,
                         kernel_size,
@@ -340,7 +339,7 @@ class ResBlock2(torch.nn.Module):
                     )
                 ),
                 weight_norm(
-                    Conv1d(
+                    nn.Conv1d(
                         channels,
                         channels,
                         kernel_size,
@@ -446,6 +445,8 @@ class ResidualCouplingLayer(nn.Module):
         self.post.bias.data.zero_()
 
     def forward(self, x, x_mask, g=None, reverse=False):
+        torch._check(x.shape[2] > 0)
+        torch._check(x_mask.shape[2] > 0)
         x0, x1 = torch.split(x, [self.half_channels] * 2, 1)
         h = self.pre(x0) * x_mask
         h = self.enc(h, x_mask, g=g)
@@ -476,7 +477,7 @@ class ConvFlow(nn.Module):
         n_layers: int,
         num_bins: int = 10,
         tail_bound: float = 5.0,
-    ):
+    ) -> None:
         super().__init__()
         self.in_channels = in_channels
         self.filter_channels = filter_channels
@@ -545,8 +546,8 @@ class ConvNeXtBlock(nn.Module):
         dim: int,
         intermediate_dim: int,
         layer_scale_init_value: float,
-        adanorm_num_embeddings: typing.Optional[int] = None,
-    ):
+        adanorm_num_embeddings: Optional[int] = None,
+    ) -> None:
         super().__init__()
         self.dwconv = nn.Conv1d(dim, dim, kernel_size=7, padding=3, groups=dim)  # depthwise conv
         self.adanorm = adanorm_num_embeddings is not None
@@ -563,7 +564,7 @@ class ConvNeXtBlock(nn.Module):
             else None
         )
 
-    def forward(self, x: torch.Tensor, cond_embedding_id: typing.Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, cond_embedding_id: Optional[torch.Tensor] = None) -> torch.Tensor:
         residual = x
         x = self.dwconv(x)
         x = x.transpose(1, 2)  # (B, C, T) -> (B, T, C)
@@ -592,18 +593,18 @@ class AdaLayerNorm(nn.Module):
         embedding_dim (int): Dimension of the embeddings.
     """
 
-    def __init__(self, num_embeddings: int, embedding_dim: int, eps: float = 1e-6):
+    def __init__(self, num_embeddings: int, embedding_dim: int, eps: float = 1e-6) -> None:
         super().__init__()
         self.eps = eps
         self.dim = embedding_dim
         self.scale = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=embedding_dim)
         self.shift = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=embedding_dim)
-        torch.nn.init.ones_(self.scale.weight)
-        torch.nn.init.zeros_(self.shift.weight)
+        nn.init.ones_(self.scale.weight)
+        nn.init.zeros_(self.shift.weight)
 
     def forward(self, x: torch.Tensor, cond_embedding_id: torch.Tensor) -> torch.Tensor:
         scale = self.scale(cond_embedding_id)
         shift = self.shift(cond_embedding_id)
-        x = nn.functional.layer_norm(x, (self.dim,), eps=self.eps)
+        x = F.layer_norm(x, (self.dim,), eps=self.eps)
         x = x * scale + shift
         return x

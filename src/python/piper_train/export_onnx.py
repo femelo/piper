@@ -10,7 +10,7 @@ from .vits.lightning_model import VitsModel
 
 _LOGGER = logging.getLogger("piper_train.export_onnx")
 
-OPSET_VERSION = 15
+# OPSET_VERSION = 15
 
 
 def main() -> None:
@@ -57,10 +57,16 @@ def main() -> None:
 
     # old_forward = model_g.infer
 
-    def infer_forward(text, text_lengths, scales, sid=None):
+    def infer_forward(
+        text: torch.Tensor,
+        text_lengths: torch.Tensor,
+        scales: torch.Tensor,
+        sid: Optional[int] = None,
+    ) -> torch.Tensor:
         noise_scale = scales[0]
         length_scale = scales[1]
         noise_scale_w = scales[2]
+
         audio = model_g.infer(
             text,
             text_lengths,
@@ -88,22 +94,29 @@ def main() -> None:
     scales = torch.FloatTensor([0.667, 1.0, 0.8])
     dummy_input = (sequences, sequence_lengths, scales, sid)
 
+    batch_size = torch.export.Dim("batch_size", min=1)
+    phone_seq_len = torch.export.Dim("phon_len", min=1)
+    scale_size = torch.export.Dim("scale_size", min=3)
+    # time_seq_len = torch.export.Dim("time_seq_len", min=1)
+
     # Export
     torch.onnx.export(
         model=model_g,
         args=dummy_input,
         f=str(args.output),
         verbose=False,
-        opset_version=OPSET_VERSION,
-        input_names=["input", "input_lengths", "scales", "sid"],
+        # opset_version=OPSET_VERSION,
+        input_names=["text", "text_lengths", "scales", "sid"],
         output_names=["output"],
-        dynamic_axes={
-            "input": {0: "batch_size", 1: "phonemes"},
-            "input_lengths": {0: "batch_size"},
-            "output": {0: "batch_size", 1: "time"},
+        dynamic_shapes={
+            "text": (batch_size, phone_seq_len),
+            "text_lengths": (batch_size, ),
+            "scales": (scale_size, ),
+            "sid": None,
+            # "output": (batch_size, time_seq_len),
         },
         dynamo=True,
-        report=True,
+        # report=True,
     )
 
     _LOGGER.info("Exported model to %s", args.output)
