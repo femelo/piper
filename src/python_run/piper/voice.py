@@ -163,8 +163,8 @@ class PiperVoice:
         )
 
         args = {
-            "input": phoneme_ids_array,
-            "input_lengths": phoneme_ids_lengths,
+            "text": phoneme_ids_array,
+            "text_lengths": phoneme_ids_lengths,
             "scales": scales
         }
 
