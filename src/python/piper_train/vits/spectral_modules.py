@@ -95,7 +95,9 @@ class ISTFT(nn.Module):
         # Normalize
         # FIXME: changed to allow onnx export
         # assert (window_envelope > 1e-11).all()
-        window_envelope = window_envelope.maximum(torch.Tensor([1e-11], device=window_envelope.device))
+        window_envelope = window_envelope.maximum(
+            torch.Tensor([1e-11], dtype=window_envelope.dtype, device=window_envelope.device)
+        )
         y = y / window_envelope
 
         return y
