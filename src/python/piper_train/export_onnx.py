@@ -80,7 +80,7 @@ def main() -> None:
 
     model_g.forward = infer_forward
 
-    dummy_input_length = 50
+    dummy_input_length = 122
     sequences = torch.randint(
         low=0, high=num_symbols, size=(1, dummy_input_length), dtype=torch.long
     )
