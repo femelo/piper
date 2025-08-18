@@ -476,7 +476,9 @@ class ConvFlow(nn.Module):
         kernel_size: int,
         n_layers: int,
         num_bins: int = 10,
-        tail_bound: float = 5.0,
+        # TODO: put back after fixing ONNX export
+        # tail_bound: float = 5.0,
+        tail_bound: float = 1000.0,
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
