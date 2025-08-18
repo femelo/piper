@@ -217,7 +217,9 @@ def rational_quadratic_spline(
         discriminant = b.pow(2) - 4 * a * c
         # FIXME: changed to allow onnx export
         # assert (discriminant >= 0).all(), discriminant
-        discriminant = discriminant.maximum(torch.Tensor([0.0]))
+        discriminant = discriminant.maximum(
+            torch.Tensor([0.0]).to(discriminant.device)
+        )
 
         root = (2 * c) / (-b - torch.sqrt(discriminant))
         outputs = root * input_bin_widths + input_cumwidths
