@@ -445,8 +445,8 @@ class ResidualCouplingLayer(nn.Module):
         self.post.bias.data.zero_()
 
     def forward(self, x, x_mask, g=None, reverse=False):
-        torch._check(x.shape[2] > 0)
-        torch._check(x_mask.shape[2] > 0)
+        torch._check(bool(x.shape[2] > 0))
+        torch._check(bool(x_mask.shape[2] > 0))
         x0, x1 = torch.split(x, [self.half_channels] * 2, 1)
         h = self.pre(x0) * x_mask
         h = self.enc(h, x_mask, g=g)
@@ -476,9 +476,7 @@ class ConvFlow(nn.Module):
         kernel_size: int,
         n_layers: int,
         num_bins: int = 10,
-        # TODO: put back after fixing ONNX export
-        # tail_bound: float = 5.0,
-        tail_bound: float = 1000.0,
+        tail_bound: float = 5.0,
     ) -> None:
         super().__init__()
         self.in_channels = in_channels

@@ -223,7 +223,8 @@ class ISTFTHead(nn.Module):
         # phase = torch.atan2(y, x)
         # S = mag * torch.exp(phase * 1j)
         # better directly produce the complex value
-        S = mag * (x + 1j * y)
+        # S = mag * (x + 1j * y)
+        S = torch.stack((mag * x, mag * y), dim=-1)
         audio = self.istft(S)
         return audio
 

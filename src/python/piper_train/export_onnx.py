@@ -94,10 +94,15 @@ def main() -> None:
     scales = torch.FloatTensor([0.667, 1.0, 0.8])
     dummy_input = (sequences, sequence_lengths, scales, sid)
 
-    batch_size = torch.export.Dim("batch_size", min=1, max=1024)
-    phone_seq_len = torch.export.Dim("phon_len", min=1, max=128)
-    scale_size = torch.export.Dim("scale_size", min=3)
+    # batch_size = torch.export.Dim("batch_size", min=1, max=1024)
+    # phone_seq_len = torch.export.Dim("phon_len", min=1, max=128)
+    # scale_size = torch.export.Dim("scale_size", min=3)
     # time_seq_len = torch.export.Dim("time_seq_len", min=1)
+    batch_size = torch.export.Dim.AUTO
+    phone_seq_len = torch.export.Dim.AUTO
+    scale_size = torch.export.Dim.AUTO
+    time_seq_len = torch.export.Dim.AUTO
+    sid_dim = torch.export.Dim.AUTO
 
     # Export
     torch.onnx.export(
@@ -108,14 +113,14 @@ def main() -> None:
         # opset_version=OPSET_VERSION,
         input_names=["text", "text_lengths", "scales", "sid"],
         output_names=["output"],
-        dynamic_shapes={
+        dynamic_axes={
             "text": (batch_size, phone_seq_len),
             "text_lengths": (batch_size, ),
-            "scales": (scale_size, ),
-            "sid": None,
-            # "output": (batch_size, time_seq_len),
+            # "scales": (scale_size, ),
+            # "sid": sid_dim,
+            "output": (batch_size, time_seq_len),
         },
-        dynamo=True,
+        # dynamo=True,
         # report=True,
     )
 

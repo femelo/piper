@@ -68,7 +68,7 @@ def unconstrained_rational_quadratic_spline(
     min_derivative: float = DEFAULT_MIN_DERIVATIVE,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     inside_interval_mask = (inputs >= -tail_bound) & (inputs <= tail_bound)
-    mask_size = inside_interval_mask.size()  # (b, 1, d)
+    # mask_size = inside_interval_mask.size()  # (b, 1, d)
     outside_interval_mask = ~inside_interval_mask
 
     outputs = torch.zeros_like(inputs)
@@ -88,7 +88,8 @@ def unconstrained_rational_quadratic_spline(
     else:
         raise RuntimeError("{} tails are not implemented.".format(tails))
 
-    n_elements = mask_size.numel()
+    # n_elements = mask_size.numel()
+    n_elements = inside_interval_mask.int().sum()
     n_widths = unnormalized_widths.shape[-1]
     n_heights = unnormalized_heights.shape[-1]
     n_derivatives = unnormalized_derivatives.shape[-1]
