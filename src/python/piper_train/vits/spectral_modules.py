@@ -167,7 +167,7 @@ class ISTFT(nn.Module):
         # Overlap and Add
         output_size = (T - 1) * self.hop_length + self.win_length
         x_hat = torch.nn.functional.fold(
-            x_win, output_size=(1, output_size), kernel_size=(1, self.win_length), stride=(1, self.hop_length),
+            x_win, output_size=(1, int(output_size)), kernel_size=(1, int(self.win_length)), stride=(1, int(self.hop_length)),
         )[:, 0, 0, pad:-pad]
 
         # Window envelope
