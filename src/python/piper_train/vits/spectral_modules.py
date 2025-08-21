@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Tuple
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 
 def mag_stft(
@@ -166,14 +167,20 @@ class ISTFT(nn.Module):
 
         # Overlap and Add
         output_size = (T - 1) * self.hop_length + self.win_length
-        x_hat = torch.nn.functional.fold(
-            x_win, output_size=(1, int(output_size)), kernel_size=(1, int(self.win_length)), stride=(1, int(self.hop_length)),
+        x_hat = F.fold(
+            x_win,
+            output_size=(1, int(output_size)),
+            kernel_size=(1, int(self.win_length)),
+            stride=(1, int(self.hop_length)),
         )[:, 0, 0, pad:-pad]
 
         # Window envelope
         window_sq = self.window.square().expand(1, T, -1).transpose(1, 2)
-        window_envelope = torch.nn.functional.fold(
-            window_sq, output_size=(1, output_size), kernel_size=(1, self.win_length), stride=(1, self.hop_length),
+        window_envelope = F.fold(
+            window_sq,
+            output_size=(1, int(output_size)),
+            kernel_size=(1, int(self.win_length)),
+            stride=(1, int(self.hop_length)),
         ).squeeze()[pad:-pad]
 
         # Normalize
