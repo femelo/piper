@@ -6,9 +6,7 @@ onnxruntime
 # onnxscript
 # onnx_ir==0.1.4
 lightning
-# torch>=2.5
-# torchaudio>=2.5
-torch
-torchaudio
+torch>=2.5
+torchaudio>=2.5
 transformers
 wandb
