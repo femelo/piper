@@ -10,7 +10,7 @@ from .vits.lightning_model import VitsModel
 
 _LOGGER = logging.getLogger("piper_train.export_onnx")
 
-# OPSET_VERSION = 15
+OPSET_VERSION = 15
 
 
 def main() -> None:
@@ -80,7 +80,7 @@ def main() -> None:
 
     model_g.forward = infer_forward
 
-    dummy_input_length = 122
+    dummy_input_length = 10
     sequences = torch.randint(
         low=0, high=num_symbols, size=(1, dummy_input_length), dtype=torch.long
     )
@@ -98,27 +98,34 @@ def main() -> None:
     # phone_seq_len = torch.export.Dim("phon_len", min=1, max=128)
     # scale_size = torch.export.Dim("scale_size", min=3)
     # time_seq_len = torch.export.Dim("time_seq_len", min=1)
+
     batch_size = torch.export.Dim.AUTO
     phone_seq_len = torch.export.Dim.AUTO
     scale_size = torch.export.Dim.AUTO
     time_seq_len = torch.export.Dim.AUTO
-    sid_dim = torch.export.Dim.AUTO
+    # sid_dim = torch.export.Dim.AUTO
+
+    # batch_size = "batch_size"
+    # phone_seq_len = "phone_seq_len"
+    # scale_size = "scale_size"
+    # time_seq_len = "time_seq_len"
+    # sid_dim = "sid_dim"
 
     # Export
     torch.onnx.export(
         model=model_g,
         args=dummy_input,
         f=str(args.output),
-        verbose=False,
+        # verbose=True,
         # opset_version=OPSET_VERSION,
         input_names=["text", "text_lengths", "scales", "sid"],
         output_names=["output"],
         dynamic_axes={
-            "text": (batch_size, phone_seq_len),
-            "text_lengths": (batch_size, ),
-            # "scales": (scale_size, ),
-            # "sid": sid_dim,
-            "output": (batch_size, time_seq_len),
+            "text": {0: batch_size, 1: phone_seq_len},
+            "text_lengths": {0: batch_size},
+            # "scales": {0: scale_size},
+            # "sid": None,
+            "output": {0: batch_size, 1: time_seq_len},
         },
         # dynamo=True,
         # report=True,
