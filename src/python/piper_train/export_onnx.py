@@ -99,16 +99,16 @@ def main() -> None:
     # scale_size = torch.export.Dim("scale_size", min=3)
     # time_seq_len = torch.export.Dim("time_seq_len", min=1)
 
-    batch_size = torch.export.Dim.AUTO
-    phone_seq_len = torch.export.Dim.AUTO
-    scale_size = torch.export.Dim.AUTO
-    time_seq_len = torch.export.Dim.AUTO
+    # batch_size = torch.export.Dim.AUTO
+    # phone_seq_len = torch.export.Dim.AUTO
+    # scale_size = torch.export.Dim.AUTO
+    # time_seq_len = torch.export.Dim.AUTO
     # sid_dim = torch.export.Dim.AUTO
 
-    # batch_size = "batch_size"
-    # phone_seq_len = "phone_seq_len"
-    # scale_size = "scale_size"
-    # time_seq_len = "time_seq_len"
+    batch_size = "batch_size"
+    phone_seq_len = "phone_seq_len"
+    scale_size = "scale_size"
+    time_seq_len = "time_seq_len"
     # sid_dim = "sid_dim"
 
     # Export
