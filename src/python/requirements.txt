@@ -3,10 +3,12 @@ piper-phonemize~=1.1.0
 librosa
 numpy
 onnxruntime
-onnxscript
-onnx_ir==0.1.4
+# onnxscript
+# onnx_ir==0.1.4
 lightning
-torch>=2.5
-torchaudio>=2.5
+# torch>=2.5
+# torchaudio>=2.5
+torch
+torchaudio
 transformers
 wandb
