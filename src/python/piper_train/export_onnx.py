@@ -10,7 +10,7 @@ from .vits.lightning_model import VitsModel
 
 _LOGGER = logging.getLogger("piper_train.export_onnx")
 
-OPSET_VERSION = 15
+OPSET_VERSION = 18
 
 
 def main() -> None:
@@ -117,7 +117,7 @@ def main() -> None:
         args=dummy_input,
         f=str(args.output),
         # verbose=True,
-        # opset_version=OPSET_VERSION,
+        opset_version=OPSET_VERSION,
         input_names=["text", "text_lengths", "scales", "sid"],
         output_names=["output"],
         dynamic_axes={
