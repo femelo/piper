@@ -75,7 +75,7 @@ class VitsModel(L.LightningModule):
         n_layers_q: int = 3,
         use_spectral_norm: bool = False,
         gin_channels: int = 0,
-        use_sdp: bool = False,  # True by default in the paper
+        use_sdp: bool = True,
         segment_size: int = 8192,
         # training
         dataset: Optional[List[Union[str, Path]]] = None,

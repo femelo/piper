@@ -100,25 +100,25 @@ class VitsGenerator(nn.Module):
             p_dropout,
         )
         # Decoder
-        # self.dec = VitsDecoder(
-        #     inter_channels,
-        #     resblock,
-        #     resblock_kernel_sizes,
-        #     resblock_dilation_sizes,
-        #     upsample_rates,
-        #     upsample_initial_channel,
-        #     upsample_kernel_sizes,
-        #     gin_channels=gin_channels,
-        # )
-        self.dec = VocosDecoder(
-            input_channels=inter_channels,
-            dim=384,
-            intermediate_dim=1152,
-            num_layers=8,
-            isft_n_fft=1280,
-            isft_hop_length=256,
-            isft_padding="same",
+        self.dec = VitsDecoder(
+            inter_channels,
+            resblock,
+            resblock_kernel_sizes,
+            resblock_dilation_sizes,
+            upsample_rates,
+            upsample_initial_channel,
+            upsample_kernel_sizes,
+            gin_channels=gin_channels,
         )
+        # self.dec = VocosDecoder(
+        #     input_channels=inter_channels,
+        #     dim=384,
+        #     intermediate_dim=1152,
+        #     num_layers=8,
+        #     isft_n_fft=1280,
+        #     isft_hop_length=256,
+        #     isft_padding="same",
+        # )
         # Posterior encoder (only needed for training)
         self.enc_q = PosteriorEncoder(
             spec_channels,
