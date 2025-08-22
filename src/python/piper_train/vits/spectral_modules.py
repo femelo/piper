@@ -162,6 +162,7 @@ class ISTFT(nn.Module):
 
         # Inverse FFT
         # ifft = torch.fft.irfft(spec, self.n_fft, dim=1, norm="backward")
+        # ifft = torch.fft.irfft(spec[..., 0] + 1j * spec[..., 1], self.n_fft, dim=1, norm="backward")
         x_ifft = self.irfft(spec[..., 0], spec[..., 1], dim=1) # [B, n_fft, T]
         x_win = x_ifft * self.window.view(1, -1, 1)
 

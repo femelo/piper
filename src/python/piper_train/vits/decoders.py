@@ -10,9 +10,9 @@ from .commons import init_weights
 from .spectral_modules import ISTFT
 
 
-class Generator(nn.Module):
+class VitsDecoder(nn.Module):
     def __init__(
-        self: Generator,
+        self: VitsDecoder,
         initial_channel: int,
         resblock: Optional[str],
         resblock_kernel_sizes: Tuple[int, ...],
@@ -60,7 +60,7 @@ class Generator(nn.Module):
             self.cond = nn.Conv1d(gin_channels, upsample_initial_channel, 1)
 
     def forward(
-        self: Generator,
+        self: VitsDecoder,
         x: torch.Tensor,
         g: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
@@ -85,7 +85,7 @@ class Generator(nn.Module):
 
         return x
 
-    def remove_weight_norm(self: Generator) -> None:
+    def remove_weight_norm(self: VitsDecoder) -> None:
         print("Removing weight norm...")
         for l in self.ups:
             remove_parametrizations(l, "weight")

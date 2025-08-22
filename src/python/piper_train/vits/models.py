@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 import torch
 from torch import nn
 from .encoders import TextEncoder, PosteriorEncoder
-from .decoders import Generator
+from .decoders import VitsDecoder
 from .decoders import VocosDecoder
 from .flow import InvertibleNormalizingFlow
 from .duration_predictors import DurationPredictor, StochasticDurationPredictor
@@ -38,13 +38,13 @@ from . import commons, monotonic_align
 #     length: Optional[torch.Tensor] = None
 
 
-class SynthesizerTrn(nn.Module):
+class VitsGenerator(nn.Module):
     """
-    Synthesizer for Training
+    Vits Synthesizer/Generator
     """
 
     def __init__(
-        self: SynthesizerTrn,
+        self: VitsGenerator,
         n_vocab: int,
         spec_channels: int,
         segment_size: int,
@@ -100,7 +100,7 @@ class SynthesizerTrn(nn.Module):
             p_dropout,
         )
         # Decoder
-        # self.dec = Generator(
+        # self.dec = VitsDecoder(
         #     inter_channels,
         #     resblock,
         #     resblock_kernel_sizes,
@@ -147,7 +147,7 @@ class SynthesizerTrn(nn.Module):
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
     def encode_speaker(
-        self: SynthesizerTrn,
+        self: VitsGenerator,
         sid: Optional[int] = None,
     ) -> Optional[torch.Tensor]:
         g: Optional[torch.Tensor] = None
@@ -158,7 +158,7 @@ class SynthesizerTrn(nn.Module):
         return g
 
     def forward(
-        self: SynthesizerTrn,
+        self: VitsGenerator,
         x: torch.Tensor,
         x_lengths: torch.Tensor,
         y: torch.Tensor,
@@ -275,7 +275,7 @@ class SynthesizerTrn(nn.Module):
         )
 
     def infer(
-        self: SynthesizerTrn,
+        self: VitsGenerator,
         x: torch.Tensor,
         x_lengths: torch.Tensor,
         sid: Optional[int] = None,
@@ -345,7 +345,7 @@ class SynthesizerTrn(nn.Module):
         )
 
     def voice_conversion(
-        self: SynthesizerTrn,
+        self: VitsGenerator,
         y: torch.Tensor,
         y_lengths: torch.Tensor,
         sid_src: int,

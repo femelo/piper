@@ -28,7 +28,7 @@ from .discriminators import (
     MultiResSpecDiscriminator,
     WavLMDiscriminator,
 )
-from .models import SynthesizerTrn
+from .models import VitsGenerator
 from .config import SLMModelConfig
 
 
@@ -75,7 +75,7 @@ class VitsModel(L.LightningModule):
         n_layers_q: int = 3,
         use_spectral_norm: bool = False,
         gin_channels: int = 0,
-        use_sdp: bool = True,
+        use_sdp: bool = False,  # True by default in the paper
         segment_size: int = 8192,
         # training
         dataset: Optional[List[Union[str, Path]]] = None,
@@ -87,9 +87,9 @@ class VitsModel(L.LightningModule):
         init_lr_ratio: float = 1.0,
         warmup_epochs: int = 0,
         slm: SLMModelConfig = SLMModelConfig(),
-        c_dur: float = 1.0,
-        c_mel: float = 5.0,
-        c_kl: float = 1.0,
+        c_dur: float = 5.0,
+        c_mel: float = 45.0,
+        c_kl: float = 10.0,
         c_gen: float = 1.0,
         c_dsc: float = 1.0,
         c_slm: float = 1.0,
@@ -111,7 +111,7 @@ class VitsModel(L.LightningModule):
 
         # Set up models
         # Generator (only needed for training)
-        self.model_g = SynthesizerTrn(
+        self.model_g = VitsGenerator(
             n_vocab=self.hparams.num_symbols,
             spec_channels=self.hparams.filter_length // 2 + 1,
             segment_size=self.hparams.segment_size // self.hparams.hop_length,
@@ -298,7 +298,7 @@ class VitsModel(L.LightningModule):
 
         self._y_hat = y_hat
 
-        # Collect predicted Mel spectrogram segments
+        # Collect predicted audio segments
         y = slice_segments(
             y,
             ids_slice * self.hparams.hop_length,

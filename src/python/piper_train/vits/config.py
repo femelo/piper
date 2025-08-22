@@ -144,9 +144,9 @@ class TrainingConfig:
     init_lr_ratio: float = 1.0
     warmup_epochs: int = 0
     slm: SLMModelConfig = field(default_factory=SLMModelConfig)
-    c_dur: float = 1.0
-    c_mel: float = 5.0
-    c_kl: float = 1.0
+    c_dur: float = 5.0
+    c_mel: float = 45.0
+    c_kl: float = 10.0
     c_gen: float = 1.0
     c_dsc: float = 1.0
     c_slm: float = 1.0
