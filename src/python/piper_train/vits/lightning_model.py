@@ -324,21 +324,23 @@ class VitsModel(L.LightningModule):
             # SLM loss
             loss_slm = self.wavlm_loss.loss_from_embeddings(y_embed, y_hat_embed).mean()
             # SLM generation loss
-            loss_gen_slm = self.wavlm_loss.generator_from_embeddings(y_hat_embed).mean()
+            # loss_gen_slm = self.wavlm_loss.generator_from_embeddings(y_hat_embed).mean()
             # Generator loss
             loss_gen = self.generator_loss(y.detach(), y_hat).mean()
             # Total generation loss
-            loss_gen_all = \
-                self.hparams.c_gen * loss_gen + \
-                self.hparams.c_slm * (loss_slm + loss_gen_slm) + \
-                self.hparams.c_mel * loss_mel + \
-                self.hparams.c_dur * loss_dur + \
-                self.hparams.c_kl * loss_kl
+            loss_gen_all = (
+                self.hparams.c_gen * loss_gen
+                # + self.hparams.c_slm * (loss_slm + loss_gen_slm) \
+                + self.hparams.c_slm * loss_slm
+                + self.hparams.c_mel * loss_mel
+                + self.hparams.c_dur * loss_dur
+                + self.hparams.c_kl * loss_kl
+            )
 
             _FABRIC.log_dict(
                 {
                     "loss_gen": loss_gen,
-                    "loss_gen_slm": loss_gen_slm,
+                    # "loss_gen_slm": loss_gen_slm,
                     "loss_slm": loss_slm,
                     "loss_mel": loss_mel,
                     "loss_dur": loss_dur,
@@ -354,21 +356,24 @@ class VitsModel(L.LightningModule):
         # From training_step_g
         y = self._y.detach()
         y_hat = self._y_hat.detach()
-        y_embed = [e.detach() for e in self._y_embed]
-        y_hat_embed = [e.detach() for e in self._y_hat_embed]
+        # y_embed = [e.detach() for e in self._y_embed]
+        # y_hat_embed = [e.detach() for e in self._y_hat_embed]
 
         with autocast(self.device.type, enabled=False):
             # Discrimination adversarial loss
             loss_dsc = self.discriminator_loss(y, y_hat).mean()
             # SLM loss
-            loss_dsc_slm = self.wavlm_loss.discriminator_from_embeddings(y_embed, y_hat_embed).mean()
+            # loss_dsc_slm = self.wavlm_loss.discriminator_from_embeddings(y_embed, y_hat_embed).mean()
             # Total discrimination loss
-            loss_dsc_all = self.hparams.c_dsc * loss_dsc + self.hparams.c_slm * loss_dsc_slm
+            loss_dsc_all = (
+                self.hparams.c_dsc * loss_dsc
+                # + self.hparams.c_slm * loss_dsc_slm
+            )
 
             _FABRIC.log_dict(
                 {
                     "loss_dsc": loss_dsc,
-                    "loss_dsc_slm": loss_dsc_slm,
+                    # "loss_dsc_slm": loss_dsc_slm,
                     "loss_dsc_all": loss_dsc_all,
                 }
             )
