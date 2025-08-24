@@ -66,9 +66,11 @@ class PiperVoice:
         """Load an ONNX model and config."""
 
         config_dict: Dict[str, Any] = {}
-        if config_path:
-            with open(config_path, "r", encoding="utf-8") as config_file:
-                config_dict = json.load(config_file)
+        if config_path is None:
+            config_path = "config.json"
+
+        with open(config_path, "r", encoding="utf-8") as config_file:
+            config_dict = json.load(config_file)
 
         model = VitsModel.load_from_checkpoint(
             checkpoint_path,

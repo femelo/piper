@@ -160,16 +160,16 @@ class VocosBackbone(nn.Module):
                 and H denotes the model dimension.
         """
         bandwidth_id = kwargs.get('bandwidth_id', None)
-        x = self.embed(x)
+        x = self.embed(x)  # (B, C, L) -> (B, H, L)
         if self.adanorm:
             assert bandwidth_id is not None
             x = self.norm(x.transpose(1, 2), cond_embedding_id=bandwidth_id)
         else:
-            x = self.norm(x.transpose(1, 2))
-        x = x.transpose(1, 2)
+            x = self.norm(x.transpose(1, 2))  # (B, H, L) -> (B, L, H)
+        x = x.transpose(1, 2)  # (B, L, H) -> (B, H, L)
         for conv_block in self.convnext:
             x = conv_block(x, cond_embedding_id=bandwidth_id)
-        x = self.final_layer_norm(x.transpose(1, 2))
+        x = self.final_layer_norm(x.transpose(1, 2))  # (B, H, L) -> (B, L, H)
         return x
 
 
@@ -193,8 +193,11 @@ class ISTFTHead(nn.Module):
         padding: str = "same",
     ) -> None:
         super().__init__()
-        out_dim = n_fft + 2
-        self.out = torch.nn.Linear(dim, out_dim)
+        self.alpha = 1e2
+        # out_dim = n_fft + 2
+        out_dim = n_fft // 2 + 1
+        self.magn_proj = nn.Linear(dim, out_dim)
+        self.phase_proj = nn.Linear(dim, out_dim - 2)
         self.istft = ISTFT(n_fft=n_fft, hop_length=hop_length, win_length=n_fft, padding=padding)
 
     def forward(
@@ -211,20 +214,23 @@ class ISTFTHead(nn.Module):
         Returns:
             Tensor: Reconstructed time-domain audio signal of shape (B, T), where T is the length of the output signal.
         """
-        x = self.out(x).transpose(1, 2)
-        mag, p = x.chunk(2, dim=1)
-        mag = torch.exp(mag)
-        mag = torch.clip(mag, max=1e2)  # safeguard to prevent excessively large magnitudes
+        # x = self.out(x).transpose(1, 2)  # (B, L, H) -> (B, out_dim, L)
+        # magn, phase = x.chunk(2, dim=1)
+        magn = self.magn_proj(x).transpose(1, 2)  # (B, n_fft, L)
+        phase = F.pad(self.phase_proj(x), (1, 1), "constant", 0.0).transpose(1, 2)  # (B, n_fft, L)
+        magn = torch.exp(magn)
+        magn = self.alpha * torch.tanh(magn / self.alpha)
+        # magnitude = torch.clip(magnitude, max=1e2)  # safeguard to prevent excessively large magnitudes
         # wrapping happens here. These two lines produce real and imaginary value
-        x = torch.cos(p)
-        y = torch.sin(p)
+        c = torch.cos(phase)
+        s = torch.sin(phase)
         # recalculating phase here does not produce anything new
         # only costs time
-        # phase = torch.atan2(y, x)
-        # S = mag * torch.exp(phase * 1j)
+        # phase = torch.atan2(s, c)
+        # S = magnitude * torch.exp(phase * 1j)
         # better directly produce the complex value
-        # S = mag * (x + 1j * y)
-        S = torch.stack((mag * x, mag * y), dim=-1)
+        # S = magnitude * (c + 1j * s)
+        S = torch.stack((magn * c, magn * s), dim=-1)
         audio = self.istft(S)
         return audio
 

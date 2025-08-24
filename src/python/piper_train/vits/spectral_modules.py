@@ -91,7 +91,8 @@ class ISTFT(nn.Module):
 
     def irfft(self: ISTFT, y_real: torch.Tensor, y_imag: torch.Tensor, dim: int = -1) -> torch.Tensor:
         assert y_real.shape == y_imag.shape, "Real and imaginary parts must have the same shape"
-        if dim != -1:
+        swap_axes = dim != -1 and dim != len(y_real.shape) - 1
+        if swap_axes:
             y_real = y_real.swapaxes(-1, dim)
             y_imag = y_imag.swapaxes(-1, dim)
         z_real, z_imag = self.extend_input(y_real, y_imag)
@@ -100,7 +101,7 @@ class ISTFT(nn.Module):
             - torch.matmul(self.sin_matrix, z_imag.swapaxes(1, -1))
         ) / self.n_fft
         x = x.swapaxes(1, -1)
-        if dim != -1:
+        if swap_axes:
             x = x.swapaxes(-1, dim)
         return x
 
@@ -162,7 +163,7 @@ class ISTFT(nn.Module):
 
         # Inverse FFT
         # ifft = torch.fft.irfft(spec, self.n_fft, dim=1, norm="backward")
-        # ifft = torch.fft.irfft(spec[..., 0] + 1j * spec[..., 1], self.n_fft, dim=1, norm="backward")
+        # x_ifft = torch.fft.irfft(spec[..., 0] + 1j * spec[..., 1], self.n_fft, dim=1, norm="backward")
         x_ifft = self.irfft(spec[..., 0], spec[..., 1], dim=1) # [B, n_fft, T]
         x_win = x_ifft * self.window.view(1, -1, 1)
 
