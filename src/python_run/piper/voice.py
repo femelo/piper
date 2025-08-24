@@ -5,8 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
+import torch
 import numpy as np
 import onnxruntime
+from piper_train.vits.lightning_model import VitsModel
+from piper_train.vits.models import VitsGenerator
 from piper_phonemize import phonemize_codepoints, phonemize_espeak, tashkeel_run
 
 from .config import PhonemeType, PiperConfig
@@ -18,7 +21,7 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class PiperVoice:
-    session: onnxruntime.InferenceSession
+    session: Union[onnxruntime.InferenceSession, VitsGenerator]
     config: PiperConfig
 
     @staticmethod
@@ -52,6 +55,37 @@ class PiperVoice:
                 sess_options=onnxruntime.SessionOptions(),
                 providers=providers,
             ),
+        )
+
+    @staticmethod
+    def load_from_checkpoint(
+        checkpoint_path: Union[str, Path],
+        config_path: Optional[Union[str, Path]] = None,
+        use_cuda: bool = False,
+    ) -> "PiperVoice":
+        """Load an ONNX model and config."""
+
+        config_dict: Dict[str, Any] = {}
+        if config_path:
+            with open(config_path, "r", encoding="utf-8") as config_file:
+                config_dict = json.load(config_file)
+
+        model = VitsModel.load_from_checkpoint(
+            checkpoint_path,
+            map_location=torch.device("cuda") if use_cuda else torch.device("cpu"),
+            dataset=None,
+        )
+        model_g = model.model_g
+
+        # Inference only
+        model_g.eval()
+
+        with torch.no_grad():
+            model_g.dec.remove_weight_norm()
+
+        return PiperVoice(
+            config=PiperConfig.from_dict(config_dict),
+            session=model_g,
         )
 
     def phonemize(self, text: str) -> List[List[str]]:
@@ -179,7 +213,21 @@ class PiperVoice:
             sid = np.array([speaker_id], dtype=np.int64)
             args["sid"] = sid
 
-        # Synthesize through Onnx
-        audio = self.session.run(None, args, )[0].squeeze((0, 1))
+        # Synthesize through Model or onnx
+        if isinstance(self.session, VitsGenerator):
+            noise_scale = scales[0]
+            length_scale = scales[1]
+            noise_scale_w = scales[2]
+            with torch.no_grad():
+                audio = self.session.infer(
+                    x=torch.from_numpy(args["text"]),
+                    x_lengths=torch.from_numpy(args["text_lengths"]),
+                    sid=torch.from_numpy(args["sid"]) if "sid" in args else None,
+                    noise_scale=noise_scale,
+                    length_scale=length_scale,
+                    noise_scale_w=noise_scale_w,
+                )[0].squeeze(0).cpu().numpy()
+        else:
+            audio = self.session.run(None, args, )[0].squeeze((0, 1))
         audio = audio_float_to_int16(audio.squeeze())
         return audio.tobytes()

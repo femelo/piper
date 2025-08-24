@@ -105,7 +105,12 @@ def main() -> None:
         args.model, args.config = find_voice(args.model, args.data_dir)
 
     # Load voice
-    voice = PiperVoice.load(args.model, config_path=args.config, use_cuda=args.cuda)
+    if args.model.endswith(".onnx"):
+        voice = PiperVoice.load(args.model, config_path=args.config, use_cuda=args.cuda)
+    else:
+        voice = PiperVoice.load_from_checkpoint(
+            args.model, use_cuda=args.cuda
+        )
     synthesize_args = {
         "speaker_id": args.speaker,
         "length_scale": args.length_scale,
