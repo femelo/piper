@@ -193,7 +193,7 @@ class ISTFTHead(nn.Module):
         padding: str = "same",
     ) -> None:
         super().__init__()
-        self.alpha = 1e2
+        self.alpha = 1e6
         # out_dim = n_fft + 2
         out_dim = n_fft // 2 + 1
         self.magn_proj = nn.Linear(dim, out_dim)

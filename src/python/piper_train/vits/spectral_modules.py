@@ -68,7 +68,7 @@ class ISTFT(nn.Module):
     def istft(self: ISTFT, y_real: torch.Tensor, y_imag: torch.Tensor) -> torch.Tensor:
         assert y_real.shape == y_imag.shape, "Real and imaginary parts must have the same shape"
         assert self.win_length == self.n_fft
-        B, _N, T = y_real.shape[-1]
+        B, _N, T = y_real.shape
 
         device = y_real.device
         istft_window = self.window.to(device).view(1, -1)
