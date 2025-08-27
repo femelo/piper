@@ -112,10 +112,10 @@ class VitsGenerator(nn.Module):
         # )
         self.dec = VocosDecoder(
             input_channels=inter_channels,
-            dim=384,
-            intermediate_dim=1152,
+            dim=192,
+            intermediate_dim=512,
             num_layers=6,
-            isft_n_fft=1280,
+            isft_n_fft=1024,
             isft_hop_length=256,
             isft_padding="same",
         )
