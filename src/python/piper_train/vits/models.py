@@ -117,7 +117,7 @@ class VitsGenerator(nn.Module):
             num_layers=6,
             isft_n_fft=1024,
             isft_hop_length=256,
-            isft_padding="same",
+            isft_padding="center",
         )
         # Posterior encoder (only needed for training)
         self.enc_q = PosteriorEncoder(

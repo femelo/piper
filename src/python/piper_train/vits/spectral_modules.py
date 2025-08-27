@@ -97,10 +97,10 @@ class ISTFT(nn.Module):
             y_imag = y_imag.swapaxes(-1, dim)
         z_real, z_imag = self.extend_input(y_real, y_imag)
         x = (
-            torch.matmul(self.cos_matrix, z_real.swapaxes(1, -1))
-            - torch.matmul(self.sin_matrix, z_imag.swapaxes(1, -1))
+            torch.matmul(self.cos_matrix, z_real.swapaxes(-2, -1))
+            - torch.matmul(self.sin_matrix, z_imag.swapaxes(-2, -1))
         ) / self.n_fft
-        x = x.swapaxes(1, -1)
+        x = x.swapaxes(-2, -1)
         if swap_axes:
             x = x.swapaxes(-1, dim)
         return x
