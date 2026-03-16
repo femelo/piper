@@ -1,1 +1,1 @@
-onnxruntime-gpu>=1.11.0,<2
+onnxruntime-gpu

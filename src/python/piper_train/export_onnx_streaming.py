@@ -10,7 +10,7 @@ import torch
 from torch import nn
 
 from .vits import commons
-from .vits.lightning import VitsModel
+from .vits.lightning_model import VitsModel
 
 _LOGGER = logging.getLogger("piper_train.export_onnx")
 OPSET_VERSION = 15

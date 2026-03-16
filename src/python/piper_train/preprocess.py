@@ -6,7 +6,6 @@ import itertools
 import json
 import logging
 import os
-import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
